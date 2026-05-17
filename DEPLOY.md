@@ -27,8 +27,8 @@ Kratko, praktično uputstvo za podizanje aplikacije na samostalan Linux server (
 - SSH pristup kao non-root korisnik sa `sudo`
 - **Domen** sa A-record-om koji pokazuje na IP servera (npr. `kontrola.tvoj-domen.rs → 1.2.3.4`)
 - Otvoreni portovi: **22** (SSH), **80** (HTTP, za Let's Encrypt), **443** (HTTPS)
-- Od vlasnika repo-a tražiš:
-  - Pristup GitHub repo-u (`https://github.com/IlijaPantic/Anketa-kontrolori.git`) — barem read access
+- Od vlasnika:
+  - Pristup GitHub repo-u (`https://github.com/IlijaPantic/Anketa-kontrolori.git`) — read access
   - **Vrednosti za `COOKIE_SECRET` i `FORM_TOKEN_SECRET`** *ili* dozvolu da ih sam generišeš (komande su ispod)
   - Email koji će biti prvi admin (i lozinku — preko Signal/Bitwarden Send, ne emailom)
 
@@ -309,9 +309,3 @@ sudo systemctl restart kontrola
   ```
 - **`.env` nikad ne ide u git** (već je u `.gitignore`)
 - Promeni default Postgres password (`kontrola_dev`) na nešto jako i drži ga van repo-a
-
----
-
-## Kontakt
-
-Za nejasnoće oko aplikacijske logike, kontaktiraj vlasnika repo-a. Za infra pitanja (Hetzner, DNS, Caddy) — standardna dokumentacija.
