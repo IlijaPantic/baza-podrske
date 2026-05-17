@@ -1,0 +1,234 @@
+// ============================================================================
+//  Kontrola — Prisma schema  (Phase 1)
+//  Spec ref: SPECIFIKACIJA.md section 9
+//
+//  4 tables:
+//    - users              (admin users, Argon2id)
+//    - polling_stations   (seed from Dušan's file, 1776 polling stations in Vojvodina)
+//    - registrations      (main registration table)
+//    - system_config      (runtime config: survey_open, daily_ip_salt)
+//
+//  Phase 2 adds: TOTP fields on users, audit_log, exports, daily_salts,
+//  and bytea columns for PII encryption alongside text columns.
+// ============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, citext]
+}
+
+// ============================================================================
+//  ENUMS
+// ============================================================================
+
+enum UserRole {
+  admin
+}
+
+// ============================================================================
+//  MODELS
+// ============================================================================
+
+/// Admin users. In Phase 1 — email + password only. Phase 2 adds TOTP.
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique @db.Citext
+  passwordHash     String    @map("password_hash")
+  role             UserRole  @default(admin)
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+
+  /// TOTP (2FA) — optional per admin.
+  /// `totpSecret` is stored as base32 (otpauth standard). When PII
+  /// encryption lands in Phase 2.2, this field moves to a bytea column.
+  /// `totpEnabledAt` is set only after successful enrollment confirmation.
+  totpSecret    String?   @map("totp_secret")
+  totpEnabledAt DateTime? @map("totp_enabled_at") @db.Timestamptz
+
+  sessions Session[]
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+/// Admin sessions — server-side, enables immediate revoke and audit.
+/// id is 256-bit random base64url (32 bytes entropy).
+/// Browser cookie holds only `id`. CSRF token is bound to the session.
+model Session {
+  id                String    @id // base64url, 43 chars
+  userId            String    @map("user_id") @db.Uuid
+  csrfToken         String    @map("csrf_token") // base64url, 43 chars
+  ipHash            String    @map("ip_hash")
+  userAgent         String    @map("user_agent")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz
+  /// Slides forward on each request (now + 30 min)
+  idleExpiresAt     DateTime  @map("idle_expires_at") @db.Timestamptz
+  /// Fixed at createdAt + 8h — does not move
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz
+  /// Revoke = logout or admin action "sign out all devices"
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([absoluteExpiresAt])
+  @@map("sessions")
+}
+
+/// Seed table of Vojvodina polling stations.
+/// Filled by script (prisma/seed.ts) from data/polling-stations-vojvodina.json.
+model PollingStation {
+  id          Int    @id @default(autoincrement())
+  /// External polling station ID from `data/ps_regions.json` (string, e.g.
+  /// "4246", "78"). Unique per polling station. Used in export so other
+  /// systems can link our registrations to their data.
+  /// Nullable for backward compatibility; all new seed rows have a value.
+  psId        String? @map("ps_id")
+  /// Numeric municipality ID from `data/ps_regions.json` (e.g. Novi Sad = 14,
+  /// Subotica = 29). Used as the primary redirect parameter `?muniid=`.
+  /// All polling stations in the same municipality share the same `muniId`.
+  /// Nullable for backward compatibility; all new seed rows have a value.
+  muniId      Int?   @map("muni_id")
+  /// "Бачка Паланка" (Cyrillic, original from source)
+  opstinaCir  String @map("opstina_cir")
+  /// "Bačka Palanka" (Latin with diacritics, for display)
+  opstinaLat  String @map("opstina_lat")
+  /// "backa-palanka" (URL-friendly, also used in `?opstina=` query
+  /// as backward-compat alternative to `?muniid=`)
+  opstinaSlug String @map("opstina_slug")
+  /// Polling station number within the municipality (e.g. "1", "42")
+  bmBroj      String @map("bm_broj")
+  /// Institution name in Latin (e.g. 'OŠ "Doctesej Obradović"')
+  bmNazivLat  String @map("bm_naziv_lat")
+  /// Institution name in Cyrillic (as in the source)
+  bmNazivCir  String @map("bm_naziv_cir")
+  /// Raw value from Dušan's file: '1 - ОШ "ДОСИТЕЈ ОБРАДОВИЋ"'
+  bmRaw       String @map("bm_raw")
+
+  registrations Registration[]
+
+  /// BM is unique within the municipality
+  @@unique([opstinaSlug, bmBroj], name: "polling_opstina_bm_uniq")
+  /// psId is unique nationwide (external catalog)
+  @@unique([psId], name: "polling_ps_id_uniq")
+  @@index([opstinaSlug])
+  @@index([muniId])
+  @@map("polling_stations")
+}
+
+/// Main table — one registration per volunteer/controller.
+model Registration {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Short ID for export (nanoid 8 chars uppercase, e.g. "K2P3X9A8")
+  shortId String @unique @map("short_id")
+
+  // -------------- Basic data -----------------------------------------
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+  /// Optional — not required on the public form
+  birthYear Int?   @map("birth_year")
+
+  // -------------- Municipality and polling station ------------------
+  /// Display municipality name ("Bačka Palanka") — always present
+  opstina          String
+  /// Slug for filter ("backa-palanka") — always present
+  opstinaSlug      String @map("opstina_slug")
+  /// FK to polling_stations — optional (user can skip polling station)
+  pollingStationId Int?   @map("polling_station_id")
+
+  // -------------- Contact (stored as entered + normalized for uniq) ----
+  /// Phone exactly as entered ("065 123 4567")
+  phone           String
+  /// E.164 normalized ("+381651234567") — for unique constraint
+  phoneNormalized String @map("phone_normalized")
+
+  /// Email exactly as entered ("Marko@Gmail.COM")
+  email           String
+  /// Lowercase for unique constraint
+  emailNormalized String @map("email_normalized") @db.Citext
+
+  // -------------- Consent ---------------------------------------------
+  consentAt DateTime @map("consent_at") @db.Timestamptz
+
+  // -------------- Registration trace ------------------------------------
+  submittedAt DateTime @default(now()) @map("submitted_at") @db.Timestamptz
+  /// sha256(ip + daily_salt) — anonymized IP for rate limiting
+  ipHash      String   @map("ip_hash")
+  userAgent   String   @map("user_agent")
+
+  // -------------- Phase 2 prep (encryption columns) -----------------
+  /// Bytea column that in Phase 2 will hold pgp_sym_encrypt() PII payload.
+  /// In Phase 1 it is null. Retrofit migration in Phase 2 will populate and
+  /// retire plain columns above.
+  piiEnc Bytes? @map("pii_enc")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  pollingStation PollingStation? @relation(fields: [pollingStationId], references: [id], onDelete: Restrict)
+
+  /// Dedupe — never two identical phones/emails
+  @@unique([phoneNormalized])
+  @@unique([emailNormalized])
+  @@index([opstinaSlug, submittedAt(sort: Desc)])
+  @@index([submittedAt(sort: Desc)])
+  @@map("registrations")
+}
+
+/// Generic key-value config for runtime parameters changeable without deploy.
+/// Example keys:
+///   - "survey_open" → "true" | "false"   (close survey with one click)
+///   - "daily_ip_salt"   → base64 salt   (rotated by cron in Phase 2)
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("system_config")
+}
+
+/// Audit log — append-only history of all security-relevant events.
+///
+/// Events (values of `event` field, kept as string for flexibility):
+///   AUTH: LOGIN_OK, LOGIN_FAIL, LOGIN_LOCKED, LOGIN_RATE_LIMITED, LOGOUT,
+///         SESSION_EXPIRED, SESSION_REVOKED, CSRF_FAIL
+///   ADMIN_USERS: ADMIN_CREATED, ADMIN_PASSWORD_RESET, ADMIN_DEACTIVATED,
+///                ADMIN_REACTIVATED, ADMIN_SESSIONS_REVOKED
+///   SURVEY: SURVEY_OPENED, SURVEY_CLOSED
+///   PUBLIC: SUBMIT_OK, SUBMIT_BOT, SUBMIT_RATE_LIMITED, SUBMIT_VALIDATION,
+///           SUBMIT_DUPLICATE
+///
+/// `metadata` must not contain raw PII (phone, email in plain).
+/// Email is logged only as prefix on LOGIN_FAIL (e.g. "ad***@kontrola.org").
+model AuditLog {
+  id           BigInt   @id @default(autoincrement())
+  event        String   @db.VarChar(64)
+  /// Who initiated the action. Null for public submit and failed login (unknown user).
+  userId       String?  @map("user_id") @db.Uuid
+  /// Who the action targets (for admin user management).
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  /// sha256(ip + daily_salt). Plain IP is never stored.
+  ipHash       String   @map("ip_hash")
+  userAgent    String   @map("user_agent")
+  /// Free-form field — e.g. {"opstinaSlug":"novi-sad","emailMasked":"a***@example.com"}
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([createdAt(sort: Desc)])
+  @@index([event, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([targetUserId, createdAt(sort: Desc)])
+  @@map("audit_log")
+}

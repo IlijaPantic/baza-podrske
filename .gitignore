@@ -1,0 +1,44 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build
+dist/
+build/
+*.tsbuildinfo
+
+# Environment (NIKAD ne commit-uj prave .env fajlove)
+.env
+.env.local
+.env.*.local
+secrets.enc.yaml
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Prisma
+prisma/dev.db
+prisma/migrations/*/migration.sql.bak
+
+# Markdown docs — ne commit-uju se u remote repo (interna dokumentacija)
+*.md

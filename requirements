@@ -1,0 +1,30 @@
+Dogovor sa Dusanom
+----------------
+- samo anketa aplikacija za unos
+- sajt za redirekciju sam pravi qr kodove (out of scope)
+- na backendu se cuvaju podaci 
+    - ime i prezime
+    - godiste
+    - opstina (BM)
+    - telefon
+    - email
+    - saglasnost?
+- fajl poslao Dusan
+- ovdje se nista ne obradjuje, samo se cuvaju i izvoze podaci u CSV i JSON formatu
+- iskorisiti cloudflare pro
+- iskorisiti cloudflare turnstile za zaštitu od botova
+- bice dobar protok, ne smije da padne sajt niti da se optereti server
+- sa sajta za redirekciju treba proslijediti opstinu, a odatle da se popuni na nasoj formi
+- forma bi trbealo da se moze popuniti i bez toga
+- admin panel za pregled podataka i za export podataka (CSV i JSON)
+- iz admin panela ce se moci zatvoriti anketa
+- broj popunjenih anketa
+- grupisanje po opstinama i sortiranje po vremenu (eksport po opstinama)
+- podaci za BM su unikatni kad se popuni opstina plus BM, a za nas slucaj trebamo dodati unique ID u bazi i da se exportuje(nalazi se u Dusanovom fajlu)
+- role - admin za sada samo, ako bude potreba dodati još role-ova
+- email servis (za sada nista)
+- po popunjavanju da se ostavi poruka korisniku da ce ga kontaktirati
+- ovo je samo za Vojvodinu
+- unos telefona - da se napravi polje za unost iskljucivo broja u fomratu (+38165xxxxxxx ili 065xxxxxxx),a da tastatura bude iskljucivo brojevna
+- da se cuva kako je uneseno
+- podijeliti na faze, da osnovni dio bude sprmean uskoro, a posle pojacavati security
