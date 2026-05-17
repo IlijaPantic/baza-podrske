@@ -42,3 +42,5 @@ prisma/migrations/*/migration.sql.bak
 
 # Markdown docs — ne commit-uju se u remote repo (interna dokumentacija)
 *.md
+# Izuzetak: deploy uputstvo treba da je u repo-u za collaborator-a
+!DEPLOY.md
