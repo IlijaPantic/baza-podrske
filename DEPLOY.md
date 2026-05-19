@@ -318,7 +318,34 @@ sudo systemctl restart kontrola
 
 ---
 
-## 14) Bezbednosna preporuka
+## 14) Aktivacija dodatnog univerziteta (kasnije, ako bude potrebno)
+
+Svih 6 control regiona je već definisano u `data/ps_regions_1.json` (vidi tabelu u sekciji 7). Ako kasnije treba da uključiš još jedan (npr. Beograd `--cr=5`), prošireni set se aktivira ovako:
+
+```bash
+cd /opt/kontrola
+
+# 1) Re-extract polling stations sa dodatim CR-om (postojeći + novi)
+npm run db:extract -- --cr=2,3,4,5
+
+# 2) Seed je idempotentan — upiše nove control_regione i biračka mesta;
+#    postojeći podaci (prijave, admini) se NE diraju.
+npm run db:seed
+
+# 3) Napravi prvog admina za novi region
+npm run admin:create -- --email=admin-bg@primer.rs --cr=5
+
+# 4) Restart (da se cache opština/PS u memoriji osveži)
+sudo systemctl restart kontrola
+```
+
+Posle ovoga novi admin se loguje na `/kontrola-admin/login` i vidi **samo** svoj region. Postojeći admini (NS/KG/NIS) i njihovi podaci ostaju netaknuti.
+
+**Bitno:** ovo NE briše bazu. `prisma migrate reset` se koristi samo pri prvom deployu (sekcija 6). Kasnije izmene su sve idempotentni `seed` pozivi.
+
+---
+
+## 15) Bezbednosna preporuka
 
 - **SSH:** isključi password login, ostavi samo ključ
 - **2FA na admin nalogu:** uključi odmah na produkciji (`/kontrola-admin/sigurnost`)
