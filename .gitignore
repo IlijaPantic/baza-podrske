@@ -45,3 +45,4 @@ prisma/migrations/*/migration.sql.bak
 # Izuzetak: deploy uputstvo i README idu u repo
 !DEPLOY.md
 !README.md
+!PREDLOG.md
