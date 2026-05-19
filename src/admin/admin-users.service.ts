@@ -17,6 +17,7 @@ import { PASSWORD_MIN_LENGTH } from '../auth/auth.constants';
 export type AdminUserRow = {
   id: string;
   email: string;
+  controlRegionId: number;
   createdAt: Date;
   lastLoginAt: Date | null;
   lockedUntil: Date | null;
@@ -51,16 +52,20 @@ export class AdminUsersService {
   // ---------- read ----------
 
   /**
-   * List of all admins (including deactivated).
-   * Sorted by createdAt asc; deactivated users are at the bottom (app-level sort because
-   * mixing nullable boolean sorts is awkward in Prisma).
+   * List admins. Scoped to a single control region so admins only see
+   * peers within their own region (no cross-region visibility).
    */
-  async listAdmins(currentUserId: string): Promise<AdminUserRow[]> {
+  async listAdmins(
+    currentUserId: string,
+    scopedControlRegionId: number,
+  ): Promise<AdminUserRow[]> {
     const users = await this.prisma.user.findMany({
+      where: { controlRegionId: scopedControlRegionId },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         email: true,
+        controlRegionId: true,
         createdAt: true,
         lastLoginAt: true,
         lockedUntil: true,
@@ -82,6 +87,7 @@ export class AdminUsersService {
     const rows: AdminUserRow[] = users.map((u) => ({
       id: u.id,
       email: u.email,
+      controlRegionId: u.controlRegionId,
       createdAt: u.createdAt,
       lastLoginAt: u.lastLoginAt,
       lockedUntil: u.lockedUntil,
@@ -109,6 +115,7 @@ export class AdminUsersService {
   async createAdmin(input: {
     email: string;
     password: string;
+    controlRegionId: number;
     byUserId: string;
     ipAddress: string;
     userAgent: string;
@@ -134,16 +141,18 @@ export class AdminUsersService {
           email,
           passwordHash,
           role: 'admin',
+          controlRegionId: input.controlRegionId,
         },
         select: { id: true },
       });
       this.logger.log(
-        `Admin kreiran: ${created.id.slice(0, 8)} email=${email} od strane=${input.byUserId.slice(0, 8)}`,
+        `Admin kreiran: ${created.id.slice(0, 8)} email=${email} cr=${input.controlRegionId} by=${input.byUserId.slice(0, 8)}`,
       );
       await this.audit.log({
         event: AuditEvent.ADMIN_CREATED,
         userId: input.byUserId,
         targetUserId: created.id,
+        controlRegionId: input.controlRegionId,
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
         metadata: { emailMasked: maskEmail(email) },
@@ -158,6 +167,24 @@ export class AdminUsersService {
   }
 
   /**
+   * Verify that the target admin belongs to the inviting admin's control
+   * region. Cross-region mutation is treated as not found (do not leak
+   * existence of admins in other regions).
+   */
+  private async loadTargetInScope(
+    targetUserId: string,
+    scopedControlRegionId: number,
+  ): Promise<{ id: string; email: string; deletedAt: Date | null; controlRegionId: number } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, email: true, deletedAt: true, controlRegionId: true },
+    });
+    if (!user) return null;
+    if (user.controlRegionId !== scopedControlRegionId) return null;
+    return user;
+  }
+
+  /**
    * Password reset. All active sessions for the affected admin are revoked.
    * An admin may reset their own password (alternative to "change password").
    */
@@ -165,13 +192,14 @@ export class AdminUsersService {
     targetUserId: string;
     newPassword: string;
     byUserId: string;
+    scopedControlRegionId: number;
     ipAddress: string;
     userAgent: string;
   }): Promise<void> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: input.targetUserId },
-      select: { id: true, email: true, deletedAt: true },
-    });
+    const user = await this.loadTargetInScope(
+      input.targetUserId,
+      input.scopedControlRegionId,
+    );
     if (!user) throw new NotFoundException('Admin ne postoji.');
     if (user.deletedAt) {
       throw new BadRequestException(
@@ -207,6 +235,7 @@ export class AdminUsersService {
       event: AuditEvent.ADMIN_PASSWORD_RESET,
       userId: input.byUserId,
       targetUserId: input.targetUserId,
+      controlRegionId: input.scopedControlRegionId,
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
       metadata: { selfReset: input.byUserId === input.targetUserId },
@@ -219,6 +248,7 @@ export class AdminUsersService {
   async deactivate(input: {
     targetUserId: string;
     byUserId: string;
+    scopedControlRegionId: number;
     ipAddress: string;
     userAgent: string;
   }): Promise<void> {
@@ -229,22 +259,23 @@ export class AdminUsersService {
       );
     }
 
-    const target = await this.prisma.user.findUnique({
-      where: { id: input.targetUserId },
-      select: { id: true, deletedAt: true },
-    });
+    const target = await this.loadTargetInScope(
+      input.targetUserId,
+      input.scopedControlRegionId,
+    );
     if (!target) throw new NotFoundException('Admin ne postoji.');
     if (target.deletedAt) {
       throw new BadRequestException('Admin je već deaktiviran.');
     }
 
     // Anti-lockout: do not allow deactivating the last active admin
+    // WITHIN this control region.
     const activeCount = await this.prisma.user.count({
-      where: { deletedAt: null },
+      where: { deletedAt: null, controlRegionId: input.scopedControlRegionId },
     });
     if (activeCount <= 1) {
       throw new ForbiddenException(
-        'Nije moguće deaktivirati poslednjeg aktivnog admina.',
+        'Nije moguće deaktivirati poslednjeg aktivnog admina ovog univerziteta.',
       );
     }
 
@@ -265,6 +296,7 @@ export class AdminUsersService {
       event: AuditEvent.ADMIN_DEACTIVATED,
       userId: input.byUserId,
       targetUserId: input.targetUserId,
+      controlRegionId: input.scopedControlRegionId,
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
     });
@@ -277,13 +309,14 @@ export class AdminUsersService {
   async reactivate(input: {
     targetUserId: string;
     byUserId: string;
+    scopedControlRegionId: number;
     ipAddress: string;
     userAgent: string;
   }): Promise<void> {
-    const target = await this.prisma.user.findUnique({
-      where: { id: input.targetUserId },
-      select: { id: true, deletedAt: true },
-    });
+    const target = await this.loadTargetInScope(
+      input.targetUserId,
+      input.scopedControlRegionId,
+    );
     if (!target) throw new NotFoundException('Admin ne postoji.');
     if (!target.deletedAt) {
       throw new BadRequestException('Admin nije deaktiviran.');
@@ -299,6 +332,7 @@ export class AdminUsersService {
       event: AuditEvent.ADMIN_REACTIVATED,
       userId: input.byUserId,
       targetUserId: input.targetUserId,
+      controlRegionId: input.scopedControlRegionId,
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
     });
@@ -311,13 +345,14 @@ export class AdminUsersService {
   async revokeAllSessions(input: {
     targetUserId: string;
     byUserId: string;
+    scopedControlRegionId: number;
     ipAddress: string;
     userAgent: string;
   }): Promise<{ revoked: number }> {
-    const target = await this.prisma.user.findUnique({
-      where: { id: input.targetUserId },
-      select: { id: true },
-    });
+    const target = await this.loadTargetInScope(
+      input.targetUserId,
+      input.scopedControlRegionId,
+    );
     if (!target) throw new NotFoundException('Admin ne postoji.');
 
     const result = await this.prisma.session.updateMany({
@@ -331,6 +366,7 @@ export class AdminUsersService {
       event: AuditEvent.ADMIN_SESSIONS_REVOKED,
       userId: input.byUserId,
       targetUserId: input.targetUserId,
+      controlRegionId: input.scopedControlRegionId,
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
       metadata: { count: result.count },

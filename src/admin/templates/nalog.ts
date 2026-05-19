@@ -2,6 +2,7 @@ import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 
 export type NalogPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   csrfToken: string;
   /** Flash success message (from query ?m=changed). */
   message?: string;
@@ -72,5 +73,6 @@ export function nalogPage(opts: NalogPageOpts): string {
     title: 'Moj nalog',
     bodyHtml,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }

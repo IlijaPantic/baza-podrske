@@ -51,12 +51,14 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
         <select id="opstinaSlug" name="opstinaSlug" required>
           <option value="">— Izaberite opštinu —</option>
           ${opstine
-            .map(
-              (o) =>
-                `<option value="${escapeHtml(o.slug)}"${
-                  prefilledOpstina === o.slug ? ' selected' : ''
-                }>${escapeHtml(o.naziv)} (${o.bmCount} BM)</option>`,
-            )
+            .map((o) => {
+              const acr = o.controlRegionAcronym
+                ? `${o.controlRegionAcronym}, `
+                : '';
+              return `<option value="${escapeHtml(o.slug)}"${
+                prefilledOpstina === o.slug ? ' selected' : ''
+              }>${escapeHtml(o.naziv)} (${acr}${o.bmCount} BM)</option>`;
+            })
             .join('\n          ')}
         </select>
         <span class="error" data-error-for="opstinaSlug"></span>

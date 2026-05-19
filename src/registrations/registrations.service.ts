@@ -22,7 +22,7 @@ import { SubmitDto } from './dto/submit.dto';
  * Service for receiving registrations.
  *
  * Responsibilities:
- *   - check whether survey is open (system_config.survey_open)
+ *   - check whether survey is open for the resolved control region
  *   - normalize phone and email (for unique check, does not replace original)
  *   - verify polling station belongs to selected municipality
  *   - generate short_id
@@ -40,15 +40,27 @@ export class RegistrationsService {
   ) {}
 
   /**
-   * Is the survey open? Default true if key is missing.
-   * Will be memory-cached later; currently reads DB every time.
+   * Is the survey open for a specific control region?
+   * Each control region has its own kill switch.
    */
-  async isSurveyOpen(): Promise<boolean> {
-    const row = await this.prisma.systemConfig.findUnique({
-      where: { key: 'survey_open' },
+  async isSurveyOpenFor(controlRegionId: number): Promise<boolean> {
+    const cr = await this.prisma.controlRegion.findUnique({
+      where: { id: controlRegionId },
+      select: { surveyOpen: true },
     });
-    if (!row) return true;
-    return row.value === 'true';
+    return cr?.surveyOpen ?? false;
+  }
+
+  /**
+   * Is at least one control region accepting submissions?
+   * Used by the public homepage to decide whether to render the form or the
+   * "closed" page when no muniid query parameter is present.
+   */
+  async isAnySurveyOpen(): Promise<boolean> {
+    const cnt = await this.prisma.controlRegion.count({
+      where: { surveyOpen: true },
+    });
+    return cnt > 0;
   }
 
   /**
@@ -75,21 +87,13 @@ export class RegistrationsService {
       return { shortId: 'BOT00000' };
     }
 
-    // 2. Survey open?
-    if (!(await this.isSurveyOpen())) {
-      await this.audit.log({
-        event: AuditEvent.SUBMIT_SURVEY_CLOSED,
-        ...auditCtx,
-      });
-      throw new ForbiddenException('Anketa je zatvorena.');
-    }
-
-    // 3. Resolve municipality — polling station is optional, but municipality is required.
+    // 2. Resolve municipality and control region — required.
     //    If polling station is given, validate it belongs to that municipality.
-    //    If not given, use name from first station for that municipality
-    //    (all stations in same municipality share the same `opstinaLat`).
-    let station: { id: number; opstinaSlug: string; opstinaLat: string; bmBroj: string | null } | null = null;
+    //    If not given, derive control region from any polling station of the
+    //    same municipality (all share the same controlRegionId).
+    let station: { id: number; opstinaSlug: string; opstinaLat: string; bmBroj: string | null; controlRegionId: number } | null = null;
     let opstinaLat: string;
+    let controlRegionId: number;
 
     if (dto.pollingStationId !== undefined) {
       const found = await this.prisma.pollingStation.findUnique({
@@ -105,16 +109,28 @@ export class RegistrationsService {
       }
       station = { ...found };
       opstinaLat = found.opstinaLat;
+      controlRegionId = found.controlRegionId;
     } else {
-      // Polling station skipped — verify municipality exists in our DB
       const any = await this.prisma.pollingStation.findFirst({
         where: { opstinaSlug: dto.opstinaSlug },
-        select: { opstinaLat: true },
+        select: { opstinaLat: true, controlRegionId: true },
       });
       if (!any) {
         throw new BadRequestException('Opština nije validna.');
       }
       opstinaLat = any.opstinaLat;
+      controlRegionId = any.controlRegionId;
+    }
+
+    // 3. Survey open for this specific control region?
+    if (!(await this.isSurveyOpenFor(controlRegionId))) {
+      await this.audit.log({
+        event: AuditEvent.SUBMIT_SURVEY_CLOSED,
+        ...auditCtx,
+        controlRegionId,
+        metadata: { opstinaSlug: dto.opstinaSlug },
+      });
+      throw new ForbiddenException('Anketa je zatvorena za vaš univerzitet.');
     }
 
     // 4. Phone and email normalization (store originals too)
@@ -148,23 +164,23 @@ export class RegistrationsService {
             opstina: opstinaLat,
             opstinaSlug: dto.opstinaSlug,
             pollingStationId: station?.id ?? null,
+            controlRegionId,
             phone: dto.phone,
             phoneNormalized,
             email: dto.email,
             emailNormalized,
-            // Implicit consent — set at submit time.
-            // Valid fineprint is shown on the public form.
             consentAt: new Date(),
             ipHash,
             userAgent: meta.userAgent.slice(0, 500),
           },
         });
         this.logger.log(
-          `Prijava OK: ${shortId} (opština=${dto.opstinaSlug}, BM=${station?.bmBroj ?? '—'})`,
+          `Submit OK: ${shortId} (cr=${controlRegionId} opstina=${dto.opstinaSlug} bm=${station?.bmBroj ?? '—'})`,
         );
         await this.audit.log({
           event: AuditEvent.SUBMIT_OK,
           ...auditCtx,
+          controlRegionId,
           metadata: {
             shortId,
             opstinaSlug: dto.opstinaSlug,
@@ -188,6 +204,7 @@ export class RegistrationsService {
             await this.audit.log({
               event: AuditEvent.SUBMIT_DUPLICATE,
               ...auditCtx,
+              controlRegionId,
               metadata: { field: dupField, opstinaSlug: dto.opstinaSlug },
             });
             if (dupField === 'phone') {

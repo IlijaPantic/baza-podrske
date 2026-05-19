@@ -70,11 +70,14 @@ export class NalogController {
   ): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      select: { email: true },
+      select: { email: true, controlRegion: { select: { name: true } } },
     });
+    const controlRegionName =
+      user?.controlRegion?.name ?? `CR #${session.controlRegionId}`;
     if (!user) {
       return nalogPage({
         userEmail: '?',
+        controlRegionName,
         csrfToken: session.csrfToken,
         error: 'Korisnik nije pronađen.',
       });
@@ -85,6 +88,7 @@ export class NalogController {
 
     return nalogPage({
       userEmail: user.email,
+      controlRegionName,
       csrfToken: session.csrfToken,
       message,
       error,

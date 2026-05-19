@@ -22,24 +22,32 @@ export type ListQuery = ListFilters & {
   pageSize: number;
 };
 
+/**
+ * Scope — every admin query MUST pass the admin's controlRegionId.
+ * This is the security boundary that prevents cross-region access.
+ */
+export type Scope = {
+  controlRegionId: number;
+};
+
 export type RegistrationRow = {
   id: string;
   shortId: string;
   firstName: string;
   lastName: string;
-  /** null when the user did not fill it in (birth year is not a required field) */
   birthYear: number | null;
   opstina: string;
   opstinaSlug: string;
-  /** Numeric muniId from ps_regions.json (e.g. Novi Sad = 14). Null during migration. */
   muniId: number | null;
-  /** External polling-station ID from ps_regions.json ("4246", "78"...). Null when no polling station (BM) is selected. */
   psId: string | null;
-  /** null when the user did not select a polling station (BM) */
+  /** Control region (university) this registration belongs to. */
+  controlRegionId: number;
   bmBroj: string | null;
-  /** null when the user did not select a polling station (BM) */
   bmNaziv: string | null;
+  /** Phone exactly as the citizen entered it (e.g. "0657894561"). */
   phone: string;
+  /** E.164 normalized phone (e.g. "+381657894561") — always unambiguous. */
+  phoneNormalized: string;
   email: string;
   submittedAt: Date;
 };
@@ -89,13 +97,21 @@ export class AdminService {
     return { page, pageSize: DEFAULT_PAGE_SIZE };
   }
 
-  private buildWhere(filters: ListFilters): Prisma.RegistrationWhereInput {
-    const where: Prisma.RegistrationWhereInput = {};
+  /**
+   * Build WHERE clause with mandatory control region scope.
+   * This is the SINGLE place where the cross-region boundary is enforced.
+   */
+  private buildWhere(
+    filters: ListFilters,
+    scope: Scope,
+  ): Prisma.RegistrationWhereInput {
+    const where: Prisma.RegistrationWhereInput = {
+      controlRegionId: scope.controlRegionId,
+    };
     if (filters.opstina) where.opstinaSlug = filters.opstina;
     if (filters.od || filters.do) {
       where.submittedAt = {};
       if (filters.od) {
-        // Start of day local time → UTC. Same approach for dev/prod.
         where.submittedAt.gte = new Date(`${filters.od}T00:00:00.000Z`);
       }
       if (filters.do) {
@@ -105,14 +121,14 @@ export class AdminService {
     return where;
   }
 
-  async listRegistrations(query: ListQuery): Promise<{
+  async listRegistrations(query: ListQuery, scope: Scope): Promise<{
     rows: RegistrationRow[];
     total: number;
     page: number;
     pageSize: number;
     totalPages: number;
   }> {
-    const where = this.buildWhere(query);
+    const where = this.buildWhere(query, scope);
     const [total, raw] = await this.prisma.$transaction([
       this.prisma.registration.count({ where }),
       this.prisma.registration.findMany({
@@ -128,7 +144,9 @@ export class AdminService {
           birthYear: true,
           opstina: true,
           opstinaSlug: true,
+          controlRegionId: true,
           phone: true,
+          phoneNormalized: true,
           email: true,
           submittedAt: true,
           pollingStation: {
@@ -151,11 +169,13 @@ export class AdminService {
       birthYear: r.birthYear,
       opstina: r.opstina,
       opstinaSlug: r.opstinaSlug,
+      controlRegionId: r.controlRegionId,
       muniId: r.pollingStation?.muniId ?? null,
       psId: r.pollingStation?.psId ?? null,
       bmBroj: r.pollingStation?.bmBroj ?? null,
       bmNaziv: r.pollingStation?.bmNazivLat ?? null,
       phone: r.phone,
+      phoneNormalized: r.phoneNormalized,
       email: r.email,
       submittedAt: r.submittedAt,
     }));
@@ -173,11 +193,14 @@ export class AdminService {
    * Returns data for export (everything matching filters, no pagination, with a hard limit).
    * Returns the same shape as listRegistrations rows plus a flag indicating truncation.
    */
-  async exportRegistrations(filters: ListFilters): Promise<{
+  async exportRegistrations(
+    filters: ListFilters,
+    scope: Scope,
+  ): Promise<{
     rows: RegistrationRow[];
     truncated: boolean;
   }> {
-    const where = this.buildWhere(filters);
+    const where = this.buildWhere(filters, scope);
     const raw = await this.prisma.registration.findMany({
       where,
       orderBy: { submittedAt: 'desc' },
@@ -190,7 +213,9 @@ export class AdminService {
         birthYear: true,
         opstina: true,
         opstinaSlug: true,
+        controlRegionId: true,
         phone: true,
+        phoneNormalized: true,
         email: true,
         submittedAt: true,
         pollingStation: {
@@ -214,11 +239,13 @@ export class AdminService {
       birthYear: r.birthYear,
       opstina: r.opstina,
       opstinaSlug: r.opstinaSlug,
+      controlRegionId: r.controlRegionId,
       muniId: r.pollingStation?.muniId ?? null,
       psId: r.pollingStation?.psId ?? null,
       bmBroj: r.pollingStation?.bmBroj ?? null,
       bmNaziv: r.pollingStation?.bmNazivLat ?? null,
       phone: r.phone,
+      phoneNormalized: r.phoneNormalized,
       email: r.email,
       submittedAt: r.submittedAt,
     }));
@@ -230,10 +257,10 @@ export class AdminService {
    * Group by municipality with counts.
    * Returns a list of opstinaSlug + name + count, sorted by count desc, then by name.
    */
-  async groupByOpstina(filters: ListFilters): Promise<
+  async groupByOpstina(filters: ListFilters, scope: Scope): Promise<
     Array<{ slug: string; naziv: string; count: number }>
   > {
-    const where = this.buildWhere(filters);
+    const where = this.buildWhere(filters, scope);
     const groups = await this.prisma.registration.groupBy({
       by: ['opstinaSlug', 'opstina'],
       where,
@@ -247,32 +274,43 @@ export class AdminService {
     }));
   }
 
-  // -------------- system_config --------------
+  // -------------- per-region survey toggle --------------
 
-  async getSurveyOpen(): Promise<boolean> {
-    const row = await this.prisma.systemConfig.findUnique({
-      where: { key: 'survey_open' },
+  async getSurveyOpen(scope: Scope): Promise<boolean> {
+    const row = await this.prisma.controlRegion.findUnique({
+      where: { id: scope.controlRegionId },
+      select: { surveyOpen: true },
     });
-    return row?.value !== 'false';
+    return row?.surveyOpen ?? false;
   }
 
   async setSurveyOpen(
     value: boolean,
+    scope: Scope,
     ctx: { byUserId: string; ipAddress: string; userAgent: string },
   ): Promise<void> {
-    await this.prisma.systemConfig.upsert({
-      where: { key: 'survey_open' },
-      create: { key: 'survey_open', value: String(value) },
-      update: { value: String(value) },
+    await this.prisma.controlRegion.update({
+      where: { id: scope.controlRegionId },
+      data: { surveyOpen: value },
     });
     this.logger.log(
-      `survey_open postavljen na ${value} od strane user=${ctx.byUserId.slice(0, 8)}`,
+      `surveyOpen=${value} cr=${scope.controlRegionId} by=${ctx.byUserId.slice(0, 8)}`,
     );
     await this.audit.log({
       event: value ? AuditEvent.SURVEY_OPENED : AuditEvent.SURVEY_CLOSED,
       userId: ctx.byUserId,
+      controlRegionId: scope.controlRegionId,
       ipAddress: ctx.ipAddress,
       userAgent: ctx.userAgent,
     });
+  }
+
+  /** Lookup of the current admin's control region name (for header badge). */
+  async getControlRegionName(controlRegionId: number): Promise<string> {
+    const cr = await this.prisma.controlRegion.findUnique({
+      where: { id: controlRegionId },
+      select: { name: true },
+    });
+    return cr?.name ?? `CR #${controlRegionId}`;
   }
 }

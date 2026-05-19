@@ -2,6 +2,7 @@ import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 
 export type AnketaPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   isOpen: boolean;
   csrfToken: string;
   message?: string;
@@ -57,5 +58,6 @@ export function adminAnketaPage(opts: AnketaPageOpts): string {
     title: opts.isOpen ? 'Anketa (otvorena)' : 'Anketa (zatvorena)',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }

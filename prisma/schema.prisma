@@ -1,15 +1,18 @@
 // ============================================================================
-//  Kontrola — Prisma schema  (Phase 1)
-//  Spec ref: SPECIFIKACIJA.md section 9
+//  Kontrola — Prisma schema  (Phase 2 + multi control region)
 //
-//  4 tables:
-//    - users              (admin users, Argon2id)
-//    - polling_stations   (seed from Dušan's file, 1776 polling stations in Vojvodina)
-//    - registrations      (main registration table)
-//    - system_config      (runtime config: survey_open, daily_ip_salt)
+//  Tables:
+//    - control_regions    (6 universities; admin scope boundary)
+//    - users              (admin users, scoped to one control region)
+//    - sessions           (server-side admin sessions)
+//    - polling_stations   (seeded from data/ps_regions_1.json, scoped to CR)
+//    - registrations      (volunteer registrations, scoped to CR via PS muni)
+//    - system_config      (global runtime config: e.g. daily_ip_salt)
+//    - audit_log          (append-only security event log)
 //
-//  Phase 2 adds: TOTP fields on users, audit_log, exports, daily_salts,
-//  and bytea columns for PII encryption alongside text columns.
+//  Each user belongs to exactly one control region. Admins can only see
+//  registrations/polling stations belonging to their control region.
+//  There is no super-admin in the UI — global operations go through CLI.
 // ============================================================================
 
 generator client {
@@ -35,12 +38,40 @@ enum UserRole {
 //  MODELS
 // ============================================================================
 
-/// Admin users. In Phase 1 — email + password only. Phase 2 adds TOTP.
+/// Control region — admin scope boundary.
+/// Static catalog (6 universities) seeded from data/ps_regions_1.json.
+/// Each polling station, registration, and user belongs to exactly one CR.
+model ControlRegion {
+  /// ID matches `ps_regions_1.json` control_regions[].id (1..6).
+  id   Int    @id
+  name String
+  slug String @unique
+
+  /// Per-region survey kill switch. Each control region can independently
+  /// open/close its own survey. There is no global toggle in this column —
+  /// global ops go through CLI / direct SQL.
+  surveyOpen Boolean @default(true) @map("survey_open")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  users           User[]
+  pollingStations PollingStation[]
+  registrations   Registration[]
+  auditLogs       AuditLog[]
+
+  @@map("control_regions")
+}
+
+/// Admin users. Each user is scoped to exactly one control region.
+/// There is no super-admin role; cross-region operations go through CLI.
 model User {
   id               String    @id @default(uuid()) @db.Uuid
   email            String    @unique @db.Citext
   passwordHash     String    @map("password_hash")
   role             UserRole  @default(admin)
+  /// Scope boundary — admin can only see data of this control region.
+  controlRegionId  Int       @map("control_region_id")
   lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz
   failedLoginCount Int       @default(0) @map("failed_login_count")
   lockedUntil      DateTime? @map("locked_until") @db.Timestamptz
@@ -49,14 +80,13 @@ model User {
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
 
   /// TOTP (2FA) — optional per admin.
-  /// `totpSecret` is stored as base32 (otpauth standard). When PII
-  /// encryption lands in Phase 2.2, this field moves to a bytea column.
-  /// `totpEnabledAt` is set only after successful enrollment confirmation.
   totpSecret    String?   @map("totp_secret")
   totpEnabledAt DateTime? @map("totp_enabled_at") @db.Timestamptz
 
-  sessions Session[]
+  controlRegion ControlRegion @relation(fields: [controlRegionId], references: [id], onDelete: Restrict)
+  sessions      Session[]
 
+  @@index([controlRegionId])
   @@index([deletedAt])
   @@map("users")
 }
@@ -86,43 +116,47 @@ model Session {
   @@map("sessions")
 }
 
-/// Seed table of Vojvodina polling stations.
-/// Filled by script (prisma/seed.ts) from data/polling-stations-vojvodina.json.
+/// Seed table of polling stations from data/ps_regions_1.json.
+/// Filtered to active control regions (e.g. NS=4, KG=2, NIS=3).
+/// Each polling station belongs to exactly one control region (via municipality).
 model PollingStation {
-  id          Int    @id @default(autoincrement())
-  /// External polling station ID from `data/ps_regions.json` (string, e.g.
-  /// "4246", "78"). Unique per polling station. Used in export so other
-  /// systems can link our registrations to their data.
-  /// Nullable for backward compatibility; all new seed rows have a value.
-  psId        String? @map("ps_id")
-  /// Numeric municipality ID from `data/ps_regions.json` (e.g. Novi Sad = 14,
-  /// Subotica = 29). Used as the primary redirect parameter `?muniid=`.
+  id               Int     @id @default(autoincrement())
+  /// External polling station ID from `data/ps_regions_1.json` (string).
+  /// Unique nationwide across all control regions.
+  psId             String? @map("ps_id")
+  /// Numeric municipality ID from `data/ps_regions_1.json`.
+  /// Used as the primary redirect parameter `?muniid=`.
   /// All polling stations in the same municipality share the same `muniId`.
-  /// Nullable for backward compatibility; all new seed rows have a value.
-  muniId      Int?   @map("muni_id")
+  muniId           Int?    @map("muni_id")
+  /// Control region (university) this polling station belongs to.
+  /// Derived from municipality.control_region in source data.
+  controlRegionId  Int     @map("control_region_id")
   /// "Бачка Паланка" (Cyrillic, original from source)
-  opstinaCir  String @map("opstina_cir")
+  opstinaCir       String  @map("opstina_cir")
   /// "Bačka Palanka" (Latin with diacritics, for display)
-  opstinaLat  String @map("opstina_lat")
+  opstinaLat       String  @map("opstina_lat")
   /// "backa-palanka" (URL-friendly, also used in `?opstina=` query
   /// as backward-compat alternative to `?muniid=`)
-  opstinaSlug String @map("opstina_slug")
+  opstinaSlug      String  @map("opstina_slug")
   /// Polling station number within the municipality (e.g. "1", "42")
-  bmBroj      String @map("bm_broj")
-  /// Institution name in Latin (e.g. 'OŠ "Doctesej Obradović"')
-  bmNazivLat  String @map("bm_naziv_lat")
+  bmBroj           String  @map("bm_broj")
+  /// Institution name in Latin (e.g. 'OŠ "Dositej Obradović"')
+  bmNazivLat       String  @map("bm_naziv_lat")
   /// Institution name in Cyrillic (as in the source)
-  bmNazivCir  String @map("bm_naziv_cir")
-  /// Raw value from Dušan's file: '1 - ОШ "ДОСИТЕЈ ОБРАДОВИЋ"'
-  bmRaw       String @map("bm_raw")
+  bmNazivCir       String  @map("bm_naziv_cir")
+  /// Raw value from source: '1 - ОШ "ДОСИТЕЈ ОБРАДОВИЋ"'
+  bmRaw            String  @map("bm_raw")
 
+  controlRegion ControlRegion  @relation(fields: [controlRegionId], references: [id], onDelete: Restrict)
   registrations Registration[]
 
-  /// BM is unique within the municipality
-  @@unique([opstinaSlug, bmBroj], name: "polling_opstina_bm_uniq")
-  /// psId is unique nationwide (external catalog)
+  /// psId is unique nationwide (external catalog).
+  /// Note: (opstinaSlug, bmBroj) is NOT unique — some municipalities have
+  /// duplicate station numbers in the source data (e.g. Vranje).
   @@unique([psId], name: "polling_ps_id_uniq")
+  @@index([controlRegionId])
   @@index([opstinaSlug])
+  @@index([opstinaSlug, bmBroj])
   @@index([muniId])
   @@map("polling_stations")
 }
@@ -147,6 +181,10 @@ model Registration {
   opstinaSlug      String @map("opstina_slug")
   /// FK to polling_stations — optional (user can skip polling station)
   pollingStationId Int?   @map("polling_station_id")
+  /// Control region scope (snapshot). Derived from polling station's
+  /// municipality at submit time. Stored even if pollingStationId is null
+  /// (resolved from muniId of the chosen opština).
+  controlRegionId  Int    @map("control_region_id")
 
   // -------------- Contact (stored as entered + normalized for uniq) ----
   /// Phone exactly as entered ("065 123 4567")
@@ -178,19 +216,21 @@ model Registration {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   pollingStation PollingStation? @relation(fields: [pollingStationId], references: [id], onDelete: Restrict)
+  controlRegion  ControlRegion   @relation(fields: [controlRegionId], references: [id], onDelete: Restrict)
 
   /// Dedupe — never two identical phones/emails
   @@unique([phoneNormalized])
   @@unique([emailNormalized])
-  @@index([opstinaSlug, submittedAt(sort: Desc)])
+  @@index([controlRegionId, submittedAt(sort: Desc)])
+  @@index([controlRegionId, opstinaSlug, submittedAt(sort: Desc)])
   @@index([submittedAt(sort: Desc)])
   @@map("registrations")
 }
 
-/// Generic key-value config for runtime parameters changeable without deploy.
+/// Generic key-value config for global runtime parameters.
+/// Per-region toggles (like survey_open) live on ControlRegion.
 /// Example keys:
-///   - "survey_open" → "true" | "false"   (close survey with one click)
-///   - "daily_ip_salt"   → base64 salt   (rotated by cron in Phase 2)
+///   - "daily_ip_salt" → base64 salt (rotated by cron, global)
 model SystemConfig {
   key       String   @id
   value     String
@@ -213,22 +253,28 @@ model SystemConfig {
 /// `metadata` must not contain raw PII (phone, email in plain).
 /// Email is logged only as prefix on LOGIN_FAIL (e.g. "ad***@kontrola.org").
 model AuditLog {
-  id           BigInt   @id @default(autoincrement())
-  event        String   @db.VarChar(64)
+  id              BigInt   @id @default(autoincrement())
+  event           String   @db.VarChar(64)
   /// Who initiated the action. Null for public submit and failed login (unknown user).
-  userId       String?  @map("user_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
   /// Who the action targets (for admin user management).
-  targetUserId String?  @map("target_user_id") @db.Uuid
+  targetUserId    String?  @map("target_user_id") @db.Uuid
+  /// Control region the event belongs to. Null for events without a region
+  /// context (e.g. unauthenticated failed login attempts).
+  controlRegionId Int?     @map("control_region_id")
   /// sha256(ip + daily_salt). Plain IP is never stored.
-  ipHash       String   @map("ip_hash")
-  userAgent    String   @map("user_agent")
+  ipHash          String   @map("ip_hash")
+  userAgent       String   @map("user_agent")
   /// Free-form field — e.g. {"opstinaSlug":"novi-sad","emailMasked":"a***@example.com"}
-  metadata     Json     @default("{}")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  controlRegion ControlRegion? @relation(fields: [controlRegionId], references: [id], onDelete: SetNull)
 
   @@index([createdAt(sort: Desc)])
   @@index([event, createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
   @@index([targetUserId, createdAt(sort: Desc)])
+  @@index([controlRegionId, createdAt(sort: Desc)])
   @@map("audit_log")
 }

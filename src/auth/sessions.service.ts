@@ -10,6 +10,8 @@ import {
 export type ValidSession = {
   id: string;
   userId: string;
+  /** Control region the admin is scoped to. */
+  controlRegionId: number;
   csrfToken: string;
   idleExpiresAt: Date;
   absoluteExpiresAt: Date;
@@ -45,6 +47,7 @@ export class SessionsService {
    */
   async create(opts: {
     userId: string;
+    controlRegionId: number;
     ipAddress: string;
     userAgent: string;
     ipSalt: string;
@@ -68,8 +71,15 @@ export class SessionsService {
       },
     });
 
-    this.logger.log(`Sesija kreirana: user=${opts.userId.slice(0, 8)} sid=${id.slice(0, 6)}…`);
-    return { id, userId: opts.userId, csrfToken, idleExpiresAt, absoluteExpiresAt };
+    this.logger.log(`Sesija kreirana: user=${opts.userId.slice(0, 8)} cr=${opts.controlRegionId} sid=${id.slice(0, 6)}…`);
+    return {
+      id,
+      userId: opts.userId,
+      controlRegionId: opts.controlRegionId,
+      csrfToken,
+      idleExpiresAt,
+      absoluteExpiresAt,
+    };
   }
 
   /**
@@ -83,9 +93,12 @@ export class SessionsService {
 
     const row = await this.prisma.session.findUnique({
       where: { id: sessionId },
+      include: { user: { select: { controlRegionId: true, deletedAt: true } } },
     });
     if (!row) return null;
     if (row.revokedAt) return null;
+    // If the underlying admin was deactivated, treat the session as invalid.
+    if (row.user?.deletedAt) return null;
 
     const now = new Date();
     if (row.absoluteExpiresAt <= now) return null;
@@ -103,6 +116,7 @@ export class SessionsService {
     return {
       id: row.id,
       userId: row.userId,
+      controlRegionId: row.user!.controlRegionId,
       csrfToken: row.csrfToken,
       idleExpiresAt: newIdleExpires,
       absoluteExpiresAt: row.absoluteExpiresAt,
@@ -114,13 +128,16 @@ export class SessionsService {
    * does not validate expiry or revoke. Used for audit on logout
    * (to know who logged out even if session expired in the meantime).
    */
-  async lookupRaw(sessionId: string): Promise<{ userId: string } | null> {
+  async lookupRaw(
+    sessionId: string,
+  ): Promise<{ userId: string; controlRegionId: number | null } | null> {
     if (!sessionId || typeof sessionId !== 'string') return null;
     const row = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      select: { userId: true },
+      select: { userId: true, user: { select: { controlRegionId: true } } },
     });
-    return row;
+    if (!row) return null;
+    return { userId: row.userId, controlRegionId: row.user?.controlRegionId ?? null };
   }
 
   /**

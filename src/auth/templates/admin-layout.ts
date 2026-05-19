@@ -64,6 +64,18 @@ const ADMIN_STYLES = /* css */ `
     color: rgba(255, 255, 255, 0.72);
     font-size: 13px;
   }
+  .admin-topbar .topbar-region {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
   .admin-topbar .topbar-right {
     display: flex;
     align-items: center;
@@ -119,6 +131,8 @@ export type AdminLayoutOpts = {
   bodyHtml: string;
   /** Active user email for topbar. If missing (login page) — topbar is not rendered. */
   userEmail?: string;
+  /** Name of the admin's control region (e.g. "Univerzitet u Novom Sadu"). */
+  controlRegionName?: string;
   /** Whether to add CSP allowing inline <script>. Login has no JS; dashboard enables where needed. */
   allowInlineScript?: boolean;
   inlineScript?: string;
@@ -139,6 +153,7 @@ export function adminLayout(opts: AdminLayoutOpts): string {
     <nav class="admin-topbar" aria-label="Admin navigacija">
       <div class="topbar-left">
         <a class="topbar-brand" href="/kontrola-admin" title="Početna — prijave">Kontrola</a>
+        ${opts.controlRegionName ? `<span class="topbar-region" title="Univerzitet">${escapeHtml(opts.controlRegionName)}</span>` : ''}
         <span class="topbar-email">${escapeHtml(opts.userEmail)}</span>
       </div>
       <div class="topbar-right">

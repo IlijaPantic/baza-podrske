@@ -131,24 +131,44 @@ npm run build
 # Primeni sve migracije
 npx prisma migrate deploy
 
-# Seed-uje biračka mesta iz data/polling-stations-vojvodina.json
+# Generiši seed fajl za aktivne control regione (NS=4, KG=2, NIS=3)
+npm run db:extract -- --cr=2,3,4
+
+# Seed: control_regions tabela + biračka mesta (~2744 za 3 univerziteta)
 npm run db:seed
 ```
 
-Posle `db:seed` u bazi treba da bude ~1776 biračkih mesta za Vojvodinu, sa `muni_id` i `ps_id` popunjeno.
+Posle `db:seed` u bazi treba da bude **6 control_regiona** (svi su definisani, čak i oni bez admina) i **~2744 biračkih mesta** za NS+KG+NIS, sa `muni_id`, `ps_id` i `control_region_id` popunjeno.
 
 ---
 
-## 7) Kreiranje prvog admina
+## 7) Kreiranje prvog admina za svaki univerzitet
+
+Svaki admin pripada tačno jednom **control regionu** (`--cr=N`):
+
+| --cr | Univerzitet |
+|---|---|
+| 1 | Univerzitet u Novom Pazaru |
+| 2 | Univerzitet u Kragujevcu |
+| 3 | Univerzitet u Nišu |
+| 4 | Univerzitet u Novom Sadu |
+| 5 | Univerzitet u Beogradu |
+| 6 | Ostalo |
 
 ```bash
-npm run admin:create -- --email=admin@primer.rs
+# Po jedan admin za svaki aktivni univerzitet
+npm run admin:create -- --email=admin-ns@primer.rs --cr=4
+npm run admin:create -- --email=admin-kg@primer.rs --cr=2
+npm run admin:create -- --email=admin-nis@primer.rs --cr=3
 # Skript pita za lozinku interaktivno (min 12 karaktera)
 ```
 
-**Bitno:** lozinka se ne prosleđuje preko CLI argumenata (zato što se loguje u history). Skript ga čita preko skrivenog inputa.
+**Bitno:**
+- Lozinka se ne prosleđuje preko CLI argumenata (zato što se loguje u history). Skript je čita preko skrivenog inputa.
+- `--cr=N` je **obavezan** pri kreiranju novog admina. Admin vidi samo podatke svog regiona — nema cross-region pristupa.
+- Za reset lozinke postojećem adminu: `npm run admin:create -- --email=X --update` (lozinku odredi novu pri pokretanju).
 
-Za dodatne admine — isto, sa drugim email-om. Ili kasnije iz admin panela: `/kontrola-admin/admini`.
+Sledeći admini istog regiona mogu da se dodaju iz admin panela: `/kontrola-admin/admini`. Admin Kragujevca može da kreira samo nove admine **Kragujevca** — ne i drugih regiona. Cross-region admin se dodaje samo CLI-jem.
 
 ---
 

@@ -3,6 +3,7 @@ import type { ListFilters } from '../admin.service';
 
 export type GroupedPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   filters: ListFilters;
   groups: Array<{ slug: string; naziv: string; count: number }>;
 };
@@ -63,5 +64,6 @@ export function adminGroupedPage(opts: GroupedPageOpts): string {
     title: 'Grupisano po opštini',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }

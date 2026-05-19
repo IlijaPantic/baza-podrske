@@ -53,13 +53,24 @@ export class AdminController {
     private readonly auditService: AuditService,
   ) {}
 
-  /** Helper — returns the active user's email (for the top bar). */
-  private async userEmail(session: ValidSession): Promise<string> {
+  /** Helper — returns the active user's email and control region name. */
+  private async userContext(session: ValidSession): Promise<{
+    email: string;
+    controlRegionName: string;
+  }> {
     const u = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      select: { email: true },
+      select: { email: true, controlRegion: { select: { name: true } } },
     });
-    return u?.email ?? '?';
+    return {
+      email: u?.email ?? '?',
+      controlRegionName: u?.controlRegion?.name ?? `CR #${session.controlRegionId}`,
+    };
+  }
+
+  /** The mandatory scope passed to all admin service methods. */
+  private scopeOf(session: ValidSession): { controlRegionId: number } {
+    return { controlRegionId: session.controlRegionId };
   }
 
   // ========== GET / — registration list ==========
@@ -71,16 +82,18 @@ export class AdminController {
     @Query() query: Record<string, unknown>,
     @CurrentSession() session: ValidSession,
   ): Promise<string> {
+    const scope = this.scopeOf(session);
     const filters = this.admin.parseFilters(query);
     const { page, pageSize } = this.admin.parsePagination(query);
-    const [{ rows, total, totalPages }, opstine, email] = await Promise.all([
-      this.admin.listRegistrations({ ...filters, page, pageSize }),
-      this.stations.listOpstine(),
-      this.userEmail(session),
+    const [{ rows, total, totalPages }, opstine, ctx] = await Promise.all([
+      this.admin.listRegistrations({ ...filters, page, pageSize }, scope),
+      this.stations.listOpstineForControlRegion(scope.controlRegionId),
+      this.userContext(session),
     ]);
 
     return adminListPage({
-      userEmail: email,
+      userEmail: ctx.email,
+      controlRegionName: ctx.controlRegionName,
       filters,
       opstine,
       rows,
@@ -98,15 +111,21 @@ export class AdminController {
     @Query() query: Record<string, unknown>,
     @CurrentSession() session: ValidSession,
   ): Promise<string> {
+    const scope = this.scopeOf(session);
     const filters = this.admin.parseFilters(query);
-    const [groups, email] = await Promise.all([
-      this.admin.groupByOpstina(filters),
-      this.userEmail(session),
+    const [groups, ctx] = await Promise.all([
+      this.admin.groupByOpstina(filters, scope),
+      this.userContext(session),
     ]);
-    return adminGroupedPage({ userEmail: email, filters, groups });
+    return adminGroupedPage({
+      userEmail: ctx.email,
+      controlRegionName: ctx.controlRegionName,
+      filters,
+      groups,
+    });
   }
 
-  // ========== GET /anketa — toggle page ==========
+  // ========== GET /anketa — per-region toggle page ==========
   @Get('anketa')
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('X-Content-Type-Options', 'nosniff')
@@ -114,11 +133,11 @@ export class AdminController {
     @CurrentSession() session: ValidSession,
     @Query('msg') msg: string | undefined,
   ): Promise<string> {
-    const [isOpen, email] = await Promise.all([
-      this.admin.getSurveyOpen(),
-      this.userEmail(session),
+    const scope = this.scopeOf(session);
+    const [isOpen, ctx] = await Promise.all([
+      this.admin.getSurveyOpen(scope),
+      this.userContext(session),
     ]);
-    // Sanitized message (predefined values only)
     const safeMsg =
       msg === 'opened'
         ? 'Anketa je uspešno otvorena.'
@@ -126,14 +145,15 @@ export class AdminController {
           ? 'Anketa je uspešno zatvorena.'
           : undefined;
     return adminAnketaPage({
-      userEmail: email,
+      userEmail: ctx.email,
+      controlRegionName: ctx.controlRegionName,
       isOpen,
       csrfToken: session.csrfToken,
       message: safeMsg,
     });
   }
 
-  // ========== POST /anketa/toggle — close/open ==========
+  // ========== POST /anketa/toggle — per-region close/open ==========
   @Post('anketa/toggle')
   @UseGuards(CsrfGuard)
   @HttpCode(303)
@@ -148,12 +168,11 @@ export class AdminController {
       throw new BadRequestException('Nevalidna akcija.');
     }
     const value = action === 'open';
-    await this.admin.setSurveyOpen(value, {
+    await this.admin.setSurveyOpen(value, this.scopeOf(session), {
       byUserId: session.userId,
       ipAddress: (req.ip || '').toString(),
       userAgent: (req.headers['user-agent'] || '').toString(),
     });
-    // Invalidating the polling stations cache is unnecessary (only survey_open changes).
     res
       .header('location', `${ADMIN_PATH}/anketa?msg=${value ? 'opened' : 'closed'}`)
       .send();
@@ -163,11 +182,15 @@ export class AdminController {
   @Get('export.csv')
   async exportCsv(
     @Query() query: Record<string, unknown>,
+    @CurrentSession() session: ValidSession,
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<string> {
     const filters = this.admin.parseFilters(query);
-    const { rows, truncated } = await this.admin.exportRegistrations(filters);
+    const { rows, truncated } = await this.admin.exportRegistrations(
+      filters,
+      this.scopeOf(session),
+    );
     const csv = toCsv(rows, this.exportColumns());
     const filename = this.buildFilename(filters, 'csv');
     res
@@ -185,10 +208,14 @@ export class AdminController {
   @Get('export.json')
   async exportJson(
     @Query() query: Record<string, unknown>,
+    @CurrentSession() session: ValidSession,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<unknown> {
     const filters = this.admin.parseFilters(query);
-    const { rows, truncated } = await this.admin.exportRegistrations(filters);
+    const { rows, truncated } = await this.admin.exportRegistrations(
+      filters,
+      this.scopeOf(session),
+    );
     const filename = this.buildFilename(filters, 'json');
     res
       .header('Content-Type', 'application/json; charset=utf-8')
@@ -208,9 +235,11 @@ export class AdminController {
         opstina_slug: r.opstinaSlug,
         muni_id: r.muniId,
         ps_id: r.psId,
+        control_region_id: r.controlRegionId,
         bm_broj: r.bmBroj,
         bm_naziv: r.bmNaziv,
         phone: r.phone,
+        phone_normalized: r.phoneNormalized,
         email: r.email,
         submitted_at: r.submittedAt.toISOString(),
       })),
@@ -228,12 +257,20 @@ export class AdminController {
   ): Promise<string> {
     const filters = this.auditService.parseFilters(query);
     const { page, pageSize } = this.auditService.parsePagination(query);
-    const [{ rows, total, totalPages }, email] = await Promise.all([
-      this.auditService.list({ ...filters, page, pageSize }),
-      this.userEmail(session),
+    // Scope: only audit log entries for this admin's control region.
+    // Unscoped entries (e.g. unauthenticated LOGIN_FAIL with no CR context)
+    // are hidden from regional admins — visible only via direct DB query.
+    const scopedFilters = {
+      ...filters,
+      controlRegionId: session.controlRegionId,
+    };
+    const [{ rows, total, totalPages }, ctx] = await Promise.all([
+      this.auditService.list({ ...scopedFilters, page, pageSize }),
+      this.userContext(session),
     ]);
     return adminAuditPage({
-      userEmail: email,
+      userEmail: ctx.email,
+      controlRegionName: ctx.controlRegionName,
       filters,
       rows,
       total,
@@ -257,12 +294,13 @@ export class AdminController {
     @Query('msg') msg: string | undefined,
     @Query('err') err: string | undefined,
   ): Promise<string> {
-    const [users, email] = await Promise.all([
-      this.adminUsers.listAdmins(session.userId),
-      this.userEmail(session),
+    const [users, ctx] = await Promise.all([
+      this.adminUsers.listAdmins(session.userId, session.controlRegionId),
+      this.userContext(session),
     ]);
     return adminUsersPage({
-      userEmail: email,
+      userEmail: ctx.email,
+      controlRegionName: ctx.controlRegionName,
       csrfToken: session.csrfToken,
       users,
       message: this.adminUserMsg(msg),
@@ -280,9 +318,12 @@ export class AdminController {
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<void> {
     try {
+      // New admins are always created in the inviting admin's control region.
+      // Cross-region admin creation is intentionally not allowed via UI.
       await this.adminUsers.createAdmin({
         email: body?.email ?? '',
         password: body?.password ?? '',
+        controlRegionId: session.controlRegionId,
         byUserId: session.userId,
         ipAddress: (req.ip || '').toString(),
         userAgent: (req.headers['user-agent'] || '').toString(),
@@ -310,6 +351,7 @@ export class AdminController {
         targetUserId: id,
         newPassword: body?.newPassword ?? '',
         byUserId: session.userId,
+        scopedControlRegionId: session.controlRegionId,
         ipAddress: (req.ip || '').toString(),
         userAgent: (req.headers['user-agent'] || '').toString(),
       });
@@ -334,6 +376,7 @@ export class AdminController {
       await this.adminUsers.deactivate({
         targetUserId: id,
         byUserId: session.userId,
+        scopedControlRegionId: session.controlRegionId,
         ipAddress: (req.ip || '').toString(),
         userAgent: (req.headers['user-agent'] || '').toString(),
       });
@@ -358,6 +401,7 @@ export class AdminController {
       await this.adminUsers.reactivate({
         targetUserId: id,
         byUserId: session.userId,
+        scopedControlRegionId: session.controlRegionId,
         ipAddress: (req.ip || '').toString(),
         userAgent: (req.headers['user-agent'] || '').toString(),
       });
@@ -382,6 +426,7 @@ export class AdminController {
       await this.adminUsers.revokeAllSessions({
         targetUserId: id,
         byUserId: session.userId,
+        scopedControlRegionId: session.controlRegionId,
         ipAddress: (req.ip || '').toString(),
         userAgent: (req.headers['user-agent'] || '').toString(),
       });
@@ -507,9 +552,15 @@ export class AdminController {
       { header: 'opstina_slug', value: (r) => r.opstinaSlug },
       { header: 'muni_id', value: (r) => r.muniId },
       { header: 'ps_id', value: (r) => r.psId },
+      { header: 'control_region_id', value: (r) => r.controlRegionId },
       { header: 'bm_broj', value: (r) => r.bmBroj },
       { header: 'bm_naziv', value: (r) => r.bmNaziv },
-      { header: 'telefon', value: (r) => r.phone },
+      // `telefon` is wrapped as Excel text (="...") so the leading 0 is preserved
+      // when opening the CSV in Excel/LibreOffice. Without this, "0657894561"
+      // gets parsed as a number and shown as "657894561".
+      { header: 'telefon', value: (r) => r.phone, excelText: true },
+      // E.164 form ("+381651234567") is unambiguous for any consumer.
+      { header: 'telefon_e164', value: (r) => r.phoneNormalized },
       { header: 'email', value: (r) => r.email },
       { header: 'prijavljen_at', value: (r) => r.submittedAt.toISOString() },
     ];

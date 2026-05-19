@@ -65,6 +65,7 @@ function filtersToQuery(filters: AuditListFilters, extra: Record<string, string 
 
 export type AuditPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   filters: AuditListFilters;
   rows: AuditRow[];
   total: number;
@@ -212,5 +213,6 @@ export function adminAuditPage(opts: AuditPageOpts): string {
     title: 'Audit log',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }

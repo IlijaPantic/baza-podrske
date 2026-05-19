@@ -15,6 +15,7 @@ function fmtDate(d: Date | null): string {
 
 export type AdminUsersPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   csrfToken: string;
   users: AdminUserRow[];
   message?: string;
@@ -152,6 +153,7 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
     title: 'Admini',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
     inlineScript,
   });
 }

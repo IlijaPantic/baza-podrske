@@ -15,7 +15,7 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",
-    "db:extract-bm": "node scripts/extract-bm-vojvodina.js",
+    "db:extract": "node scripts/extract-polling-stations.js",
     "admin:create": "ts-node --project scripts/tsconfig.json scripts/create-admin.ts"
   },
   "prisma": {

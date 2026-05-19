@@ -78,7 +78,7 @@ export class AuthService {
     password: string;
     ipAddress: string;
     userAgent?: string;
-  }): Promise<{ userId: string; requires2fa: boolean }> {
+  }): Promise<{ userId: string; controlRegionId: number; requires2fa: boolean }> {
     const email = opts.email?.trim()?.toLowerCase();
     const password = opts.password ?? '';
     const auditCtx = {
@@ -199,12 +199,12 @@ export class AuthService {
       this.logger.log(
         `Login step 1 OK (2FA needed): user=${user.id.slice(0, 8)}`,
       );
-      return { userId: user.id, requires2fa: true };
+      return { userId: user.id, controlRegionId: user.controlRegionId, requires2fa: true };
     }
 
     // No 2FA → final success
-    await this.finalizeLoginSuccess(user.id, opts.ipAddress, opts.userAgent);
-    return { userId: user.id, requires2fa: false };
+    await this.finalizeLoginSuccess(user.id, user.controlRegionId, opts.ipAddress, opts.userAgent);
+    return { userId: user.id, controlRegionId: user.controlRegionId, requires2fa: false };
   }
 
   /**
@@ -219,7 +219,7 @@ export class AuthService {
     code: string;
     ipAddress: string;
     userAgent?: string;
-  }): Promise<{ userId: string }> {
+  }): Promise<{ userId: string; controlRegionId: number }> {
     const auditCtx = {
       ipAddress: opts.ipAddress,
       userAgent: opts.userAgent ?? '',
@@ -304,15 +304,20 @@ export class AuthService {
     }
 
     // 5) Success
-    await this.finalizeLoginSuccess(user.id, opts.ipAddress, opts.userAgent, {
-      via2fa: true,
-    });
-    return { userId: user.id };
+    await this.finalizeLoginSuccess(
+      user.id,
+      user.controlRegionId,
+      opts.ipAddress,
+      opts.userAgent,
+      { via2fa: true },
+    );
+    return { userId: user.id, controlRegionId: user.controlRegionId };
   }
 
   /** Reset counters; record LOGIN_OK or LOGIN_2FA_OK. */
   private async finalizeLoginSuccess(
     userId: string,
+    controlRegionId: number,
     ipAddress: string,
     userAgent: string | undefined,
     opts?: { via2fa?: boolean },
@@ -329,11 +334,12 @@ export class AuthService {
     await this.audit.log({
       event: opts?.via2fa ? AuditEvent.LOGIN_2FA_OK : AuditEvent.LOGIN_OK,
       userId,
+      controlRegionId,
       ipAddress,
       userAgent: userAgent ?? '',
     });
     this.logger.log(
-      `Login finalized (${opts?.via2fa ? '2fa' : 'password'}): user=${userId.slice(0, 8)}`,
+      `Login finalized (${opts?.via2fa ? '2fa' : 'password'}): user=${userId.slice(0, 8)} cr=${controlRegionId}`,
     );
   }
 

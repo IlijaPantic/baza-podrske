@@ -73,12 +73,15 @@ export class TotpController {
         email: true,
         totpEnabledAt: true,
         totpSecret: true,
+        controlRegion: { select: { name: true } },
       },
     });
+    const controlRegionName =
+      user?.controlRegion?.name ?? `CR #${session.controlRegionId}`;
     if (!user) {
-      // Session is valid but user gone — render minimal page
       return securityPage({
         userEmail: '?',
+        controlRegionName,
         csrfToken: session.csrfToken,
         totpEnabled: false,
         totpEnabledAt: null,
@@ -91,6 +94,7 @@ export class TotpController {
 
     return securityPage({
       userEmail: user.email,
+      controlRegionName,
       csrfToken: session.csrfToken,
       totpEnabled: !!user.totpEnabledAt && !!user.totpSecret,
       totpEnabledAt: user.totpEnabledAt,
@@ -110,11 +114,18 @@ export class TotpController {
   ): Promise<string> {
     const user = await this.prisma.user.findUnique({
       where: { id: session.userId },
-      select: { email: true, totpEnabledAt: true },
+      select: {
+        email: true,
+        totpEnabledAt: true,
+        controlRegion: { select: { name: true } },
+      },
     });
+    const controlRegionName =
+      user?.controlRegion?.name ?? `CR #${session.controlRegionId}`;
     if (!user) {
       return securityPage({
         userEmail: '?',
+        controlRegionName,
         csrfToken: session.csrfToken,
         totpEnabled: false,
         totpEnabledAt: null,
@@ -124,6 +135,7 @@ export class TotpController {
     if (user.totpEnabledAt) {
       return securityPage({
         userEmail: user.email,
+        controlRegionName,
         csrfToken: session.csrfToken,
         totpEnabled: true,
         totpEnabledAt: user.totpEnabledAt,
@@ -138,6 +150,7 @@ export class TotpController {
 
     return securityPage({
       userEmail: user.email,
+      controlRegionName,
       csrfToken: session.csrfToken,
       totpEnabled: false,
       totpEnabledAt: null,

@@ -101,7 +101,7 @@ export class AuthController {
     const userAgent = (req.headers['user-agent'] || '').toString();
 
     try {
-      const { userId, requires2fa } = await this.auth.verifyCredentials({
+      const { userId, controlRegionId, requires2fa } = await this.auth.verifyCredentials({
         email: parsed.data.email,
         password: parsed.data.password,
         ipAddress,
@@ -124,6 +124,7 @@ export class AuthController {
       // Without 2FA — create session immediately
       const session = await this.sessions.create({
         userId,
+        controlRegionId,
         ipAddress,
         userAgent,
         ipSalt: await this.ipSalt.get(),
@@ -180,7 +181,7 @@ export class AuthController {
     }
 
     try {
-      const { userId } = await this.auth.verifyTotpAndFinalize({
+      const { userId, controlRegionId } = await this.auth.verifyTotpAndFinalize({
         userId: tokenCheck.userId,
         code: parsed.data.code,
         ipAddress,
@@ -189,6 +190,7 @@ export class AuthController {
 
       const session = await this.sessions.create({
         userId,
+        controlRegionId,
         ipAddress,
         userAgent,
         ipSalt: await this.ipSalt.get(),
@@ -234,6 +236,7 @@ export class AuthController {
         await this.audit.log({
           event: AuditEvent.LOGOUT,
           userId: session.userId,
+          controlRegionId: session.controlRegionId ?? null,
           ipAddress: (req.ip || '').toString(),
           userAgent: (req.headers['user-agent'] || '').toString(),
         });

@@ -31,6 +31,7 @@ function filtersToQuery(filters: ListFilters, extra: Record<string, string | num
 
 export type ListPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   filters: ListFilters;
   opstine: OpstinaListItem[];
   rows: RegistrationRow[];
@@ -178,5 +179,6 @@ export function adminListPage(opts: ListPageOpts): string {
     title: 'Prijave',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }

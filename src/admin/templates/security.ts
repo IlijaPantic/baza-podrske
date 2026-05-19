@@ -2,6 +2,7 @@ import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 
 export type SecurityPageOpts = {
   userEmail: string;
+  controlRegionName: string;
   csrfToken: string;
   /** Whether 2FA is currently enabled for this admin */
   totpEnabled: boolean;
@@ -49,6 +50,7 @@ export function securityPage(opts: SecurityPageOpts): string {
     title: 'Bezbednost',
     bodyHtml: body,
     userEmail: opts.userEmail,
+    controlRegionName: opts.controlRegionName,
   });
 }
 

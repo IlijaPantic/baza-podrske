@@ -1,8 +1,16 @@
 /**
- * Bootstrap script — creates a new admin user.
+ * Bootstrap script — creates a new admin user (scoped to a control region).
  *
  * Run:
- *   npm run admin:create -- --email=admin@kontrola.org
+ *   npm run admin:create -- --email=admin@kontrola.org --cr=4
+ *
+ * Where --cr=N is the control_region ID (1..6):
+ *   1 = Univerzitet u Novom Pazaru
+ *   2 = Univerzitet u Kragujevcu
+ *   3 = Univerzitet u Nišu
+ *   4 = Univerzitet u Novom Sadu
+ *   5 = Univerzitet u Beogradu
+ *   6 = Ostalo
  *
  * The script:
  *  - Loads .env (DATABASE_URL)
@@ -26,10 +34,20 @@ const ARGON2_OPTIONS = {
 };
 const PASSWORD_MIN_LENGTH = 12;
 
-function parseArgs(argv: string[]): { email?: string; update: boolean } {
-  const out: { email?: string; update: boolean } = { update: false };
+function parseArgs(argv: string[]): {
+  email?: string;
+  controlRegionId?: number;
+  update: boolean;
+} {
+  const out: { email?: string; controlRegionId?: number; update: boolean } = {
+    update: false,
+  };
   for (const a of argv) {
     if (a.startsWith('--email=')) out.email = a.slice('--email='.length).trim();
+    if (a.startsWith('--cr=')) {
+      const n = parseInt(a.slice('--cr='.length).trim(), 10);
+      if (Number.isInteger(n)) out.controlRegionId = n;
+    }
     if (a === '--update') out.update = true;
   }
   return out;
@@ -77,15 +95,21 @@ function promptHidden(rl: Interface, question: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const { email, update } = parseArgs(process.argv.slice(2));
+  const { email, controlRegionId, update } = parseArgs(process.argv.slice(2));
   if (!email) {
     console.error('Greška: --email=<adresa> je obavezan.');
-    console.error('Primer: npm run admin:create -- --email=admin@kontrola.org');
+    console.error('Primer: npm run admin:create -- --email=admin@kontrola.org --cr=4');
     process.exit(2);
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     console.error('Greška: nevalidan email format.');
+    process.exit(2);
+  }
+
+  if (controlRegionId === undefined && !update) {
+    console.error('Greška: --cr=<id> je obavezan pri kreiranju novog admina.');
+    console.error('  1=Novi Pazar, 2=Kragujevac, 3=Niš, 4=Novi Sad, 5=Beograd, 6=Ostalo');
     process.exit(2);
   }
 
@@ -112,6 +136,20 @@ async function main(): Promise<void> {
 
   const prisma = new PrismaClient();
   try {
+    // Validate control region exists (if specified)
+    if (controlRegionId !== undefined) {
+      const cr = await prisma.controlRegion.findUnique({
+        where: { id: controlRegionId },
+        select: { id: true, name: true },
+      });
+      if (!cr) {
+        console.error(`Greška: control region ${controlRegionId} ne postoji u bazi.`);
+        console.error('Najpre pokreni: npx prisma db seed');
+        process.exit(2);
+      }
+      console.log(`Control region: ${cr.id} — ${cr.name}`);
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (existing && !update) {
@@ -128,6 +166,8 @@ async function main(): Promise<void> {
           failedLoginCount: 0,
           lockedUntil: null,
           deletedAt: null,
+          // If --cr specified during update, change the user's control region too.
+          ...(controlRegionId !== undefined && { controlRegionId }),
         },
       });
       // On password change — revoke all existing sessions for this user
@@ -143,9 +183,10 @@ async function main(): Promise<void> {
           email,
           passwordHash: hashed,
           role: 'admin',
+          controlRegionId: controlRegionId!,
         },
       });
-      console.log(`✓ Admin kreiran: ${created.email} (id=${created.id})`);
+      console.log(`✓ Admin kreiran: ${created.email} (id=${created.id}, cr=${created.controlRegionId})`);
     }
   } finally {
     await prisma.$disconnect();

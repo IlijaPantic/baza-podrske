@@ -1,10 +1,20 @@
 # Kontrola
 
-Web aplikacija za prikupljanje prijava volontera/kontrolora (Vojvodina) sa admin panelom za pregled i izvoz podataka.
+Web aplikacija za prikupljanje prijava volontera/kontrolora sa admin panelom za pregled i izvoz podataka. Podržava više **control regiona** (univerziteta) sa strogom izolacijom — admin jednog univerziteta ne može pristupiti podacima drugog.
 
 ## Stack
 
 NestJS (Fastify) · Prisma 6 · PostgreSQL 16 · Node 20 · Argon2id · TOTP 2FA · SSR template-i + vanilla JS
+
+## Control regions (trenutno aktivni)
+
+| ID | Naziv | Opštine | Biračka mesta |
+|---|---|---:|---:|
+| 2 | Univerzitet u Kragujevcu | 5 | 495 |
+| 3 | Univerzitet u Nišu | 9 | 547 |
+| 4 | Univerzitet u Novom Sadu | 44 | 1702 |
+
+Univerziteti **NP** (1), **BG** (5) i **Ostalo** (6) su definisani u bazi ali bez admina. Aktiviraju se izborom seed filtera i pravljenjem admina (`npm run admin:create -- --email=X --cr=N`).
 
 ## Brzi start (lokalno)
 
@@ -21,15 +31,20 @@ cp .env.example .env
 # 3. Pokreni Postgres (Docker)
 docker compose up -d postgres
 
-# 4. Migracije + seed (~1776 biračkih mesta)
+# 4. Generiši seed podatke za aktivne regione (NS+KG+NIS)
+npm run db:extract -- --cr=2,3,4
+
+# 5. Migracije + seed (~2744 biračkih mesta za 3 regiona)
 npx prisma migrate deploy
 npx prisma generate
 npm run db:seed
 
-# 5. Kreiraj prvog admina
-npm run admin:create -- --email=admin@primer.rs
+# 6. Kreiraj prve admine (po jedan po regionu)
+npm run admin:create -- --email=admin-ns@primer.rs --cr=4
+npm run admin:create -- --email=admin-kg@primer.rs --cr=2
+npm run admin:create -- --email=admin-nis@primer.rs --cr=3
 
-# 6. Pokreni aplikaciju
+# 7. Pokreni aplikaciju
 npm run start:dev
 ```
 
@@ -55,8 +70,10 @@ scripts/            # create-admin, extract-bm
 
 ## URL parametri (javna forma)
 
-- `?muniid=119` — primarno, numerički ID opštine iz `data/ps_regions.json`
+- `?muniid=119` — primarno, numerički ID opštine iz `data/ps_regions_1.json`
 - `?opstina=novi-sad` — fallback slug
+
+Kontrolni region (univerzitet) se izvodi iz `muniId`-a automatski pri podnošenju.
 
 ## Komande
 
@@ -66,8 +83,18 @@ scripts/            # create-admin, extract-bm
 | `npm run build` | Build (`dist/`) |
 | `npm run start:prod` | Production start (`node dist/main`) |
 | `npm run db:migrate` | Primeni migracije |
-| `npm run db:seed` | Seed biračka mesta |
-| `npm run admin:create -- --email=X` | Dodaj admina |
+| `npm run db:extract -- --cr=2,3,4` | Generiši `polling-stations.json` za regione |
+| `npm run db:seed` | Seed biračka mesta + control regions |
+| `npm run admin:create -- --email=X --cr=N` | Dodaj admina (N = control region id) |
+
+## Multi-region operacije (CLI / SSH)
+
+Nema "superadmin" naloga u UI-u. Operacije preko više regiona idu CLI-jem:
+
+- **Novi admin za drugi region:** `npm run admin:create -- --email=X --cr=N`
+- **Reset admin lozinke:** `npm run admin:create -- --email=X --update`
+- **Globalni pregled / agregirani brojevi:** direktan SQL upit na bazu (`psql`)
+- **Kompletno gašenje ankete (svi regioni):** `UPDATE control_regions SET survey_open = false;`
 
 ## Produkcija
 

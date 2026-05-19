@@ -19,6 +19,9 @@ export type AuditOptions = {
   event: AuditEventName;
   userId?: string | null;
   targetUserId?: string | null;
+  /** Control region scope for the event. Optional — events without
+   *  region context (e.g. unauthenticated failed login) leave this null. */
+  controlRegionId?: number | null;
   ipAddress: string;
   userAgent?: string | null;
   metadata?: Record<string, unknown>;
@@ -28,6 +31,8 @@ export type AuditListFilters = {
   event?: AuditEventName | '';
   userId?: string;
   targetUserId?: string;
+  /** Filter scope: only entries for this control region (or null/unset). */
+  controlRegionId?: number;
   od?: string;
   do?: string;
 };
@@ -78,6 +83,7 @@ export class AuditService {
           event: opts.event,
           userId: opts.userId ?? null,
           targetUserId: opts.targetUserId ?? null,
+          controlRegionId: opts.controlRegionId ?? null,
           ipHash,
           userAgent: (opts.userAgent ?? '').slice(0, 500),
           metadata: (opts.metadata ?? {}) as Prisma.InputJsonValue,
@@ -133,6 +139,9 @@ export class AuditService {
     if (query.event) where.event = query.event;
     if (query.userId) where.userId = query.userId;
     if (query.targetUserId) where.targetUserId = query.targetUserId;
+    if (typeof query.controlRegionId === 'number') {
+      where.controlRegionId = query.controlRegionId;
+    }
     if (query.od || query.do) {
       where.createdAt = {};
       if (query.od) where.createdAt.gte = new Date(`${query.od}T00:00:00.000Z`);
