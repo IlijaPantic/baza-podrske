@@ -16,7 +16,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
   const bodyHtml = `
     <header class="header">
       <span class="kicker">Studenti pobeđuju!</span>
-      <h1>Prijava za kontrolora izbora</h1>
+      <h1>Prijava za obuku kontrolora izbora</h1>
       <p>Popunite formu - javljamo vam se uskoro.</p>
     </header>
     <noscript>
@@ -308,7 +308,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
 `;
 
   return layout({
-    title: 'Prijava za kontrolora — Vojvodina',
+    title: 'Prijava za obuku kontrolora izbora',
     bodyHtml,
     inlineScript,
   });
