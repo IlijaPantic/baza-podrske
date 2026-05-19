@@ -157,9 +157,9 @@ Svaki admin pripada tačno jednom **control regionu** (`--cr=N`):
 
 ```bash
 # Po jedan admin za svaki aktivni univerzitet
-npm run admin:create -- --email=admin-ns@primer.rs --cr=4
-npm run admin:create -- --email=admin-kg@primer.rs --cr=2
-npm run admin:create -- --email=admin-nis@primer.rs --cr=3
+npm run admin:create -- --email=admin-ns@primer.rs --cr=4 (cr = 4  za Novi Sad)
+npm run admin:create -- --email=admin-kg@primer.rs --cr=2 (cr = 2 za Kragujevac)
+npm run admin:create -- --email=admin-nis@primer.rs --cr=3 (cr = 3 za Nis)
 # Skript pita za lozinku interaktivno (min 12 karaktera)
 ```
 
