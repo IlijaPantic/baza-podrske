@@ -16,8 +16,8 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
   const bodyHtml = `
     <header class="header">
       <span class="kicker">Studenti pobeđuju!</span>
-      <h1>Prijava za obuku kontrolora izbora</h1>
-      <p>Popunite formu - javljamo vam se uskoro.</p>
+      <h1>Prijava za obuku kontrolora i posmatrača izbora</h1>
+      <p>Popunite formu - javljamo vam se uskoro. Ukoliko ste već završili studentsku obuku, molimo vas da se ne prijavljujete ponovno.</p>
     </header>
     <noscript>
       <div class="global-error">
@@ -80,8 +80,8 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
           autocomplete="tel"
           pattern="[+0-9]*"
           maxlength="20"
-          placeholder="0651234567" />
-        <span class="hint">Samo cifre (npr. <code>0651234567</code> ili <code>+381651234567</code>). Bez razmaka.</span>
+          placeholder="06xxxxxxxx ili +38xxxxxxxxxx" />
+        <span class="hint">Mobilni iz Srbije, Crne Gore ili BiH. Primer: <code>0651234567</code>, <code>+38267123456</code>, <code>+38761234567</code>. Bez razmaka.</span>
         <span class="error" data-error-for="phone"></span>
       </div>
 

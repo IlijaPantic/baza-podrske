@@ -13,7 +13,7 @@ import { IpSaltService } from '../common/ip-salt.service';
 import {
   generateShortId,
   normalizeEmail,
-  normalizePhoneRS,
+  normalizePhone,
   sha256Hex,
 } from '../common/normalize';
 import { SubmitDto } from './dto/submit.dto';
@@ -137,7 +137,7 @@ export class RegistrationsService {
     let phoneNormalized: string;
     let emailNormalized: string;
     try {
-      phoneNormalized = normalizePhoneRS(dto.phone);
+      phoneNormalized = normalizePhone(dto.phone);
     } catch (e: any) {
       throw new BadRequestException(e?.message ?? 'Telefon nije validan');
     }
