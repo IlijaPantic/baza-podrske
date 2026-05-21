@@ -81,7 +81,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
           pattern="[+0-9]*"
           maxlength="20"
           placeholder="06xxxxxxxx ili +38xxxxxxxxxx" />
-        <span class="hint">Mobilni iz Srbije, Crne Gore ili BiH. Primer: <code>0651234567</code>, <code>+38267123456</code>, <code>+38761234567</code>. Bez razmaka.</span>
+        <span class="hint">Primer: <code>0651234567</code>, <code>+38267123456</code>, <code>+38761234567</code>. Bez razmaka.</span>
         <span class="error" data-error-for="phone"></span>
       </div>
 
