@@ -40,7 +40,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
       </div>
 
       <div class="field">
-        <label for="birthYear">Godište <span class="opt-tag">opciono</span></label>
+        <label for="birthYear">Godište</label>
         <input id="birthYear" name="birthYear" type="number" inputmode="numeric" min="1900" max="${CURRENT_YEAR}" />
         <span class="hint">Godina rođenja (npr. 1985).</span>
         <span class="error" data-error-for="birthYear"></span>
