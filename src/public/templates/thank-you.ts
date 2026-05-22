@@ -9,7 +9,7 @@ export function thankYouPage(shortId?: string): string {
     <div class="card status-card">
       <div class="status-icon" aria-hidden="true">✓</div>
       <h2>Hvala vam!</h2>
-      <p>Vaša prijava je uspešna. Kontaktiraćemo vas telefonom ili emailom kad obuke budu aktivne.</p>
+      <p>Vaša prijava je uspešna. Kontaktiraćemo vas telefonom ili emailom kada dođe vaš termin za obuku</p>
       ${shortId ? `<div class="short-id">Vaš broj prijave: ${escapeHtml(shortId)}</div>` : ''}
     </div>
   `;

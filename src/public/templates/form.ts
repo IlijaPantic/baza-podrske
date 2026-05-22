@@ -69,7 +69,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
         <select id="pollingStationId" name="pollingStationId" disabled>
           <option value="">— Prvo izaberite opštinu —</option>
         </select>
-        <span class="hint">Ako znate, izaberite svoje biračko mesto. Proveru mozete da uradite <a href="https://upit.birackispisak.gov.rs/" target="_blank">ovde</a>.</span>
+        <span class="hint">Proveru biračkog mesta mozete da uradite <a href="https://upit.birackispisak.gov.rs/" target="_blank">ovde</a>.</span>
         <span class="error" data-error-for="pollingStationId"></span>
       </div>
 
