@@ -1,26 +1,34 @@
 /**
  * Generates `data/opstine-list.txt` — a human-readable list of all
- * municipalities in `data/ps_regions_1.json`, with their muniId and the
- * control region (university) acronym in parentheses.
+ * municipalities from the configured source JSON, with their muniId and
+ * the control region (university) acronym in parentheses.
+ *
+ * Source defaults to `data/ps_regions_2.json` (current canonical mapping).
+ * Override with `--src=<filename>` if needed (e.g. for diffing versions).
  *
  * Run:
  *   node scripts/list-opstine.js
+ *   node scripts/list-opstine.js --src=ps_regions_1.json
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 
-const SRC = path.join(__dirname, '..', 'data', 'ps_regions_1.json');
+const args = process.argv.slice(2);
+const srcArg = args.find((a) => a.startsWith('--src='));
+const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_2.json';
+
+const SRC = path.join(__dirname, '..', 'data', srcName);
 const DST = path.join(__dirname, '..', 'data', 'opstine-list.txt');
 
 /** control_region.id -> { acronym, name } */
 const CR_MAP = {
-  1: { acronym: 'UNINP', name: 'Univerzitet u Novom Pazaru' },
+  1: { acronym: 'DUNP',  name: 'Državni univerzitet u Novom Pazaru' },
   2: { acronym: 'UNIKG', name: 'Univerzitet u Kragujevcu' },
-  3: { acronym: 'UNIS',  name: 'Univerzitet u Nišu' },
+  3: { acronym: 'UNI',   name: 'Univerzitet u Nišu' },
   4: { acronym: 'UNS',   name: 'Univerzitet u Novom Sadu' },
   5: { acronym: 'UB',    name: 'Univerzitet u Beogradu' },
-  6: { acronym: 'OST',   name: 'Ostalo' },
+  6: { acronym: 'OST',   name: 'Ostalo (nije aktivno)' },
 };
 
 function pad(s, n) {
@@ -53,7 +61,7 @@ const lines = [];
 lines.push('===========================================================');
 lines.push('  SVE OPŠTINE — muniId i univerzitet (control region)');
 lines.push(`  Generated: ${new Date().toISOString()}`);
-lines.push(`  Source:    data/ps_regions_1.json`);
+lines.push(`  Source:    data/${srcName}`);
 lines.push(`  Total:     ${munis.length} opština`);
 lines.push('===========================================================');
 lines.push('');

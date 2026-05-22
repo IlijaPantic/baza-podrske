@@ -1,6 +1,9 @@
 /**
- * Extract polling stations from data/ps_regions_1.json into the seed format
- * used by prisma/seed.ts.
+ * Extract polling stations from the canonical regions JSON into the seed
+ * format used by prisma/seed.ts.
+ *
+ * Source defaults to `data/ps_regions_2.json` (current canonical mapping).
+ * Override with `--src=<filename>` if needed.
  *
  * Filters by --cr=ID,ID,... (comma-separated control region IDs).
  * Defaults to active control regions: 2 (KG), 3 (NIS), 4 (NS).
@@ -25,7 +28,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const REGIONS = path.join(__dirname, '..', 'data', 'ps_regions_1.json');
+const cliArgs = process.argv.slice(2);
+const srcArg = cliArgs.find((a) => a.startsWith('--src='));
+const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_2.json';
+
+const REGIONS = path.join(__dirname, '..', 'data', srcName);
 const OUTDIR = path.join(__dirname, '..', 'data');
 const OUTFILE = path.join(OUTDIR, 'polling-stations.json');
 
@@ -51,7 +58,7 @@ console.log('Active control regions:', activeCrIds.join(', '));
 
 // ---------------------------------------------------------------------------
 // Latin → Cyrillic (for legacy `bm_naziv_cir` / `opstina_cir` columns).
-// Source data in ps_regions_1.json is already in Latin script.
+// Source data is in Latin script; we generate Cyrillic for legacy columns.
 // ---------------------------------------------------------------------------
 const LAT2CIR = {
   a: 'а', b: 'б', v: 'в', g: 'г', d: 'д', e: 'е', z: 'з',

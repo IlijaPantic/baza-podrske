@@ -16,7 +16,9 @@
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",
     "db:extract": "node scripts/extract-polling-stations.js",
-    "admin:create": "ts-node --project scripts/tsconfig.json scripts/create-admin.ts"
+    "db:migrate-jurisdictions": "ts-node --project scripts/tsconfig.json scripts/migrate-jurisdictions.ts",
+    "admin:create": "ts-node --project scripts/tsconfig.json scripts/create-admin.ts",
+    "admin:list": "ts-node --project scripts/tsconfig.json scripts/list-admins.ts"
   },
   "prisma": {
     "seed": "ts-node --project prisma/tsconfig.seed.json prisma/seed.ts"

@@ -4,15 +4,15 @@ import { PrismaService } from '../prisma/prisma.service';
 /**
  * Short acronym shown next to opština name on the public form
  * ("Novi Sad (UNS, 1702 BM)").
- * Matches control_region IDs from data/ps_regions_1.json.
+ * Matches control_region IDs from the canonical source JSON.
  */
 export const CONTROL_REGION_ACRONYMS: Record<number, string> = {
-  1: 'UNP', // Univerzitet u Novom Pazaru
-  2: 'UNKG', // Univerzitet u Kragujevcu
-  3: 'UNN', // Univerzitet u Nišu
+  1: 'DUNP', // Državni univerzitet u Novom Pazaru
+  2: 'UNIKG', // Univerzitet u Kragujevcu
+  3: 'UNI', // Univerzitet u Nišu
   4: 'UNS', // Univerzitet u Novom Sadu
   5: 'UB', // Univerzitet u Beogradu
-  6: '', // Ostalo — no acronym
+  6: '', // Ostalo — no acronym (not activated in the app)
 };
 
 export function controlRegionAcronym(id: number): string {
@@ -158,10 +158,30 @@ export class PollingStationsService {
     return this.opstinaMetaCache!.get(slug) ?? null;
   }
 
-  /** List all municipalities across all active control regions. */
+  /**
+   * Resolve the set of control region IDs whose `surveyOpen=true`.
+   * Used to hide opštine of closed CRs from the public dropdown. Reads from
+   * DB on every call (tiny table, ~6 rows). Public GET / is CF-cached so the
+   * real query rate is very low.
+   */
+  private async getActiveControlRegionIds(): Promise<Set<number>> {
+    const rows = await this.prisma.controlRegion.findMany({
+      where: { surveyOpen: true },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /**
+   * List municipalities for the public form.
+   * Only includes opštine whose control region has `surveyOpen=true`.
+   * Closed CRs (e.g. UB intentionally hidden, or admin temporarily closed)
+   * disappear from the dropdown.
+   */
   async listOpstine(): Promise<OpstinaListItem[]> {
     await this.loadCache();
-    return this.opstineCache!;
+    const active = await this.getActiveControlRegionIds();
+    return this.opstineCache!.filter((o) => active.has(o.controlRegionId));
   }
 
   /** List municipalities filtered to a single control region (admin scope). */
@@ -170,12 +190,22 @@ export class PollingStationsService {
     return this.opstineCache!.filter((o) => o.controlRegionId === controlRegionId);
   }
 
-  /** Returns all polling stations from DB, grouped by municipality slug. */
+  /**
+   * Returns polling stations grouped by municipality slug — only for opštine
+   * of control regions whose `surveyOpen=true`. Mirrors `listOpstine()` filtering
+   * so the public form's `bmByOpstina` map cannot leak BMs of closed CRs.
+   */
   async allByOpstina(): Promise<Record<string, BmListItem[]>> {
     await this.loadCache();
+    const active = await this.getActiveControlRegionIds();
+    const activeSlugs = new Set(
+      this.opstineCache!
+        .filter((o) => active.has(o.controlRegionId))
+        .map((o) => o.slug),
+    );
     const out: Record<string, BmListItem[]> = {};
     for (const [slug, list] of this.bmCache!) {
-      out[slug] = list;
+      if (activeSlugs.has(slug)) out[slug] = list;
     }
     return out;
   }
