@@ -3,6 +3,10 @@ import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 export type SecurityPageOpts = {
   userEmail: string;
   controlRegionName: string;
+  /** Role of the active user — drives nav visibility in the topbar. */
+  role?: 'admin' | 'municipality_admin';
+  /** Opština name (pretty) for the topbar badge if municipality admin. */
+  opstinaNaziv?: string | null;
   csrfToken: string;
   /** Whether 2FA is currently enabled for this admin */
   totpEnabled: boolean;
@@ -51,6 +55,8 @@ export function securityPage(opts: SecurityPageOpts): string {
     bodyHtml: body,
     userEmail: opts.userEmail,
     controlRegionName: opts.controlRegionName,
+    role: opts.role,
+    opstinaNaziv: opts.opstinaNaziv,
   });
 }
 

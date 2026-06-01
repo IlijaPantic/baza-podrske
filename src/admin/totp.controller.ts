@@ -20,6 +20,7 @@ import { CurrentSession } from '../auth/decorators/current-session';
 import type { ValidSession } from '../auth/sessions.service';
 import { SessionsService } from '../auth/sessions.service';
 import { AuthService } from '../auth/auth.service';
+import { PollingStationsService } from '../polling-stations/polling-stations.service';
 import { ADMIN_BASE, ADMIN_PATH } from '../auth/auth.constants';
 import { securityPage } from './templates/security';
 
@@ -57,7 +58,17 @@ export class TotpController {
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly sessions: SessionsService,
+    private readonly stations: PollingStationsService,
   ) {}
+
+  /** Resolve opština label for the topbar badge (only for municipality admin). */
+  private async opstinaNaziv(session: ValidSession): Promise<string | null> {
+    if (session.role !== 'municipality_admin' || !session.assignedOpstinaSlug) {
+      return null;
+    }
+    const meta = await this.stations.getOpstinaMeta(session.assignedOpstinaSlug);
+    return meta?.naziv ?? session.assignedOpstinaSlug;
+  }
 
   // ---- GET /2fa ----------------------------------------------------------
 
@@ -67,21 +78,26 @@ export class TotpController {
     @Query() query: Record<string, unknown>,
     @CurrentSession() session: ValidSession,
   ): Promise<string> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        email: true,
-        totpEnabledAt: true,
-        totpSecret: true,
-        controlRegion: { select: { name: true } },
-      },
-    });
+    const [user, opstinaNaziv] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: session.userId },
+        select: {
+          email: true,
+          totpEnabledAt: true,
+          totpSecret: true,
+          controlRegion: { select: { name: true } },
+        },
+      }),
+      this.opstinaNaziv(session),
+    ]);
     const controlRegionName =
       user?.controlRegion?.name ?? `CR #${session.controlRegionId}`;
     if (!user) {
       return securityPage({
         userEmail: '?',
         controlRegionName,
+        role: session.role,
+        opstinaNaziv,
         csrfToken: session.csrfToken,
         totpEnabled: false,
         totpEnabledAt: null,
@@ -95,6 +111,8 @@ export class TotpController {
     return securityPage({
       userEmail: user.email,
       controlRegionName,
+      role: session.role,
+      opstinaNaziv,
       csrfToken: session.csrfToken,
       totpEnabled: !!user.totpEnabledAt && !!user.totpSecret,
       totpEnabledAt: user.totpEnabledAt,
@@ -112,20 +130,25 @@ export class TotpController {
   async startEnrollment(
     @CurrentSession() session: ValidSession,
   ): Promise<string> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: session.userId },
-      select: {
-        email: true,
-        totpEnabledAt: true,
-        controlRegion: { select: { name: true } },
-      },
-    });
+    const [user, opstinaNaziv] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: session.userId },
+        select: {
+          email: true,
+          totpEnabledAt: true,
+          controlRegion: { select: { name: true } },
+        },
+      }),
+      this.opstinaNaziv(session),
+    ]);
     const controlRegionName =
       user?.controlRegion?.name ?? `CR #${session.controlRegionId}`;
     if (!user) {
       return securityPage({
         userEmail: '?',
         controlRegionName,
+        role: session.role,
+        opstinaNaziv,
         csrfToken: session.csrfToken,
         totpEnabled: false,
         totpEnabledAt: null,
@@ -136,6 +159,8 @@ export class TotpController {
       return securityPage({
         userEmail: user.email,
         controlRegionName,
+        role: session.role,
+        opstinaNaziv,
         csrfToken: session.csrfToken,
         totpEnabled: true,
         totpEnabledAt: user.totpEnabledAt,
@@ -151,6 +176,8 @@ export class TotpController {
     return securityPage({
       userEmail: user.email,
       controlRegionName,
+      role: session.role,
+      opstinaNaziv,
       csrfToken: session.csrfToken,
       totpEnabled: false,
       totpEnabledAt: null,

@@ -101,12 +101,13 @@ export class AuthController {
     const userAgent = (req.headers['user-agent'] || '').toString();
 
     try {
-      const { userId, controlRegionId, requires2fa } = await this.auth.verifyCredentials({
-        email: parsed.data.email,
-        password: parsed.data.password,
-        ipAddress,
-        userAgent,
-      });
+      const { userId, controlRegionId, role, assignedOpstinaSlug, requires2fa } =
+        await this.auth.verifyCredentials({
+          email: parsed.data.email,
+          password: parsed.data.password,
+          ipAddress,
+          userAgent,
+        });
 
       if (requires2fa) {
         // Issue pending token (HMAC, 5 min TTL) and show the 2FA challenge page.
@@ -125,6 +126,8 @@ export class AuthController {
       const session = await this.sessions.create({
         userId,
         controlRegionId,
+        role,
+        assignedOpstinaSlug,
         ipAddress,
         userAgent,
         ipSalt: await this.ipSalt.get(),
@@ -181,16 +184,19 @@ export class AuthController {
     }
 
     try {
-      const { userId, controlRegionId } = await this.auth.verifyTotpAndFinalize({
-        userId: tokenCheck.userId,
-        code: parsed.data.code,
-        ipAddress,
-        userAgent,
-      });
+      const { userId, controlRegionId, role, assignedOpstinaSlug } =
+        await this.auth.verifyTotpAndFinalize({
+          userId: tokenCheck.userId,
+          code: parsed.data.code,
+          ipAddress,
+          userAgent,
+        });
 
       const session = await this.sessions.create({
         userId,
         controlRegionId,
+        role,
+        assignedOpstinaSlug,
         ipAddress,
         userAgent,
         ipSalt: await this.ipSalt.get(),

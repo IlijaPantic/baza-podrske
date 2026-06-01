@@ -7,11 +7,26 @@ import {
   SESSION_IDLE_MS,
 } from './auth.constants';
 
+/** Two roles supported in the admin panel. Mirrors UserRole in Prisma. */
+export type SessionRole = 'admin' | 'municipality_admin';
+
 export type ValidSession = {
   id: string;
   userId: string;
-  /** Control region the admin is scoped to. */
+  /** Control region the admin is scoped to (level 1 boundary). */
   controlRegionId: number;
+  /**
+   * Role of the admin user.
+   *   - 'admin'              → CR-level admin, sees whole CR
+   *   - 'municipality_admin' → restricted to a single opština within the CR
+   */
+  role: SessionRole;
+  /**
+   * Level 2 scope boundary — opština slug.
+   * MUST be a non-empty string when role='municipality_admin'.
+   * MUST be null when role='admin'.
+   */
+  assignedOpstinaSlug: string | null;
   csrfToken: string;
   idleExpiresAt: Date;
   absoluteExpiresAt: Date;
@@ -48,6 +63,8 @@ export class SessionsService {
   async create(opts: {
     userId: string;
     controlRegionId: number;
+    role: SessionRole;
+    assignedOpstinaSlug: string | null;
     ipAddress: string;
     userAgent: string;
     ipSalt: string;
@@ -71,11 +88,15 @@ export class SessionsService {
       },
     });
 
-    this.logger.log(`Sesija kreirana: user=${opts.userId.slice(0, 8)} cr=${opts.controlRegionId} sid=${id.slice(0, 6)}…`);
+    this.logger.log(
+      `Sesija kreirana: user=${opts.userId.slice(0, 8)} cr=${opts.controlRegionId} role=${opts.role}${opts.assignedOpstinaSlug ? ` opstina=${opts.assignedOpstinaSlug}` : ''} sid=${id.slice(0, 6)}…`,
+    );
     return {
       id,
       userId: opts.userId,
       controlRegionId: opts.controlRegionId,
+      role: opts.role,
+      assignedOpstinaSlug: opts.assignedOpstinaSlug,
       csrfToken,
       idleExpiresAt,
       absoluteExpiresAt,
@@ -93,7 +114,16 @@ export class SessionsService {
 
     const row = await this.prisma.session.findUnique({
       where: { id: sessionId },
-      include: { user: { select: { controlRegionId: true, deletedAt: true } } },
+      include: {
+        user: {
+          select: {
+            controlRegionId: true,
+            role: true,
+            assignedOpstinaSlug: true,
+            deletedAt: true,
+          },
+        },
+      },
     });
     if (!row) return null;
     if (row.revokedAt) return null;
@@ -113,10 +143,21 @@ export class SessionsService {
       });
     }
 
+    // Defensive normalization — a malformed DB row (role='admin' with
+    // assigned_opstina_slug set, or vice versa) should NEVER appear, but if it
+    // does we want predictable behavior: assignedOpstinaSlug only honored for
+    // role=municipality_admin.
+    const role: SessionRole =
+      row.user!.role === 'municipality_admin' ? 'municipality_admin' : 'admin';
+    const assignedOpstinaSlug =
+      role === 'municipality_admin' ? (row.user!.assignedOpstinaSlug ?? null) : null;
+
     return {
       id: row.id,
       userId: row.userId,
       controlRegionId: row.user!.controlRegionId,
+      role,
+      assignedOpstinaSlug,
       csrfToken: row.csrfToken,
       idleExpiresAt: newIdleExpires,
       absoluteExpiresAt: row.absoluteExpiresAt,

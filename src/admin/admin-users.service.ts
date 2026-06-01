@@ -14,10 +14,15 @@ import { AuditService } from '../audit/audit.service';
 import { AuditEvent, maskEmail } from '../audit/audit.events';
 import { PASSWORD_MIN_LENGTH } from '../auth/auth.constants';
 
+export type AdminRole = 'admin' | 'municipality_admin';
+
 export type AdminUserRow = {
   id: string;
   email: string;
+  role: AdminRole;
   controlRegionId: number;
+  /** Opština slug — set only when role='municipality_admin'. */
+  assignedOpstinaSlug: string | null;
   createdAt: Date;
   lastLoginAt: Date | null;
   lockedUntil: Date | null;
@@ -65,7 +70,9 @@ export class AdminUsersService {
       select: {
         id: true,
         email: true,
+        role: true,
         controlRegionId: true,
+        assignedOpstinaSlug: true,
         createdAt: true,
         lastLoginAt: true,
         lockedUntil: true,
@@ -87,7 +94,10 @@ export class AdminUsersService {
     const rows: AdminUserRow[] = users.map((u) => ({
       id: u.id,
       email: u.email,
+      role: u.role === 'municipality_admin' ? 'municipality_admin' : 'admin',
       controlRegionId: u.controlRegionId,
+      assignedOpstinaSlug:
+        u.role === 'municipality_admin' ? (u.assignedOpstinaSlug ?? null) : null,
       createdAt: u.createdAt,
       lastLoginAt: u.lastLoginAt,
       lockedUntil: u.lockedUntil,
@@ -97,10 +107,13 @@ export class AdminUsersService {
       isSelf: u.id === currentUserId,
     }));
 
-    // Active first, deactivated last; within each group by createdAt
+    // Active first, deactivated last; within each group: CR admins before
+    // municipality admins, then by createdAt.
     rows.sort((a, b) => {
       if (!a.deletedAt && b.deletedAt) return -1;
       if (a.deletedAt && !b.deletedAt) return 1;
+      if (a.role === 'admin' && b.role === 'municipality_admin') return -1;
+      if (a.role === 'municipality_admin' && b.role === 'admin') return 1;
       return a.createdAt.getTime() - b.createdAt.getTime();
     });
     return rows;
@@ -111,10 +124,17 @@ export class AdminUsersService {
   /**
    * Creates a new admin.
    * Email is normalized (lowercase, trim). Password is Argon2id-hashed.
+   *
+   * When `role='municipality_admin'`, `assignedOpstinaSlug` must be provided
+   * AND must belong to `controlRegionId` (caller-validated via PollingStations
+   * service before calling — see admin.controller).
    */
   async createAdmin(input: {
     email: string;
     password: string;
+    role: AdminRole;
+    /** Mandatory when role='municipality_admin', otherwise must be null. */
+    assignedOpstinaSlug: string | null;
     controlRegionId: number;
     byUserId: string;
     ipAddress: string;
@@ -126,6 +146,21 @@ export class AdminUsersService {
     }
     if (email.length > 254) {
       throw new BadRequestException('Email je predugačak.');
+    }
+
+    // Role/opština consistency check — caller must enforce that the slug
+    // belongs to the CR. We only enforce shape here.
+    if (input.role === 'municipality_admin') {
+      const slug = (input.assignedOpstinaSlug ?? '').trim();
+      if (!slug || !/^[a-z0-9-]{1,80}$/.test(slug)) {
+        throw new BadRequestException(
+          'Za opštinskog admina moraš izabrati opštinu.',
+        );
+      }
+    } else if (input.assignedOpstinaSlug) {
+      throw new BadRequestException(
+        'CR admin ne sme imati dodeljenu opštinu (interna konzistentnost).',
+      );
     }
 
     let passwordHash: string;
@@ -140,13 +175,17 @@ export class AdminUsersService {
         data: {
           email,
           passwordHash,
-          role: 'admin',
+          role: input.role,
           controlRegionId: input.controlRegionId,
+          assignedOpstinaSlug:
+            input.role === 'municipality_admin'
+              ? input.assignedOpstinaSlug
+              : null,
         },
         select: { id: true },
       });
       this.logger.log(
-        `Admin kreiran: ${created.id.slice(0, 8)} email=${email} cr=${input.controlRegionId} by=${input.byUserId.slice(0, 8)}`,
+        `Admin kreiran: ${created.id.slice(0, 8)} email=${email} role=${input.role} cr=${input.controlRegionId}${input.assignedOpstinaSlug ? ` opstina=${input.assignedOpstinaSlug}` : ''} by=${input.byUserId.slice(0, 8)}`,
       );
       await this.audit.log({
         event: AuditEvent.ADMIN_CREATED,
@@ -155,7 +194,13 @@ export class AdminUsersService {
         controlRegionId: input.controlRegionId,
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
-        metadata: { emailMasked: maskEmail(email) },
+        metadata: {
+          emailMasked: maskEmail(email),
+          role: input.role,
+          ...(input.assignedOpstinaSlug
+            ? { opstinaSlug: input.assignedOpstinaSlug }
+            : {}),
+        },
       });
       return created;
     } catch (e: unknown) {
@@ -268,15 +313,27 @@ export class AdminUsersService {
       throw new BadRequestException('Admin je već deaktiviran.');
     }
 
-    // Anti-lockout: do not allow deactivating the last active admin
-    // WITHIN this control region.
-    const activeCount = await this.prisma.user.count({
-      where: { deletedAt: null, controlRegionId: input.scopedControlRegionId },
-    });
-    if (activeCount <= 1) {
-      throw new ForbiddenException(
-        'Nije moguće deaktivirati poslednjeg aktivnog admina ovog univerziteta.',
-      );
+    // Anti-lockout: do not allow deactivating the last active CR admin
+    // WITHIN this control region. (Last municipality admin is fine — that just
+    // means no one currently covers that opština.)
+    const targetIsCrAdmin =
+      (await this.prisma.user.findUnique({
+        where: { id: input.targetUserId },
+        select: { role: true },
+      }))?.role === 'admin';
+    if (targetIsCrAdmin) {
+      const activeCrAdmins = await this.prisma.user.count({
+        where: {
+          deletedAt: null,
+          controlRegionId: input.scopedControlRegionId,
+          role: 'admin',
+        },
+      });
+      if (activeCrAdmins <= 1) {
+        throw new ForbiddenException(
+          'Nije moguće deaktivirati poslednjeg aktivnog CR admina ovog univerziteta.',
+        );
+      }
     }
 
     await this.prisma.$transaction([

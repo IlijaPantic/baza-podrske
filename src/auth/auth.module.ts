@@ -8,6 +8,7 @@ import { PendingLoginTokenService } from './pending-login-token.service';
 import { AuthController } from './auth.controller';
 import { SessionGuard } from './guards/session.guard';
 import { CsrfGuard } from './guards/csrf.guard';
+import { CrAdminGuard } from './guards/cr-admin.guard';
 
 @Module({
   imports: [PrismaModule],
@@ -20,6 +21,7 @@ import { CsrfGuard } from './guards/csrf.guard';
     PendingLoginTokenService,
     SessionGuard,
     CsrfGuard,
+    CrAdminGuard,
   ],
   // Exported so the admin panel module can use guards and sessions
   exports: [
@@ -29,6 +31,7 @@ import { CsrfGuard } from './guards/csrf.guard';
     PendingLoginTokenService,
     SessionGuard,
     CsrfGuard,
+    CrAdminGuard,
   ],
 })
 export class AuthModule {}

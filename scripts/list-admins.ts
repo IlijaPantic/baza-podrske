@@ -31,6 +31,7 @@ async function main() {
       role: true,
       controlRegionId: true,
       controlRegion: { select: { name: true } },
+      assignedOpstinaSlug: true,
       totpEnabledAt: true,
       lastLoginAt: true,
       lockedUntil: true,
@@ -38,7 +39,7 @@ async function main() {
       createdAt: true,
       deletedAt: true,
     },
-    orderBy: [{ controlRegionId: 'asc' }, { email: 'asc' }],
+    orderBy: [{ controlRegionId: 'asc' }, { role: 'asc' }, { email: 'asc' }],
   });
 
   if (admins.length === 0) {
@@ -48,9 +49,9 @@ async function main() {
 
   console.log(`\nAdmin korisnici (${admins.length}):\n`);
   console.log(
-    `  ${pad('Email', 32)} ${pad('CR', 3)} ${pad('Univerzitet', 36)} ${pad('Status', 9)} ${pad('2FA', 4)} ${pad('Last login', 17)} ${pad('Created', 17)}`,
+    `  ${pad('Email', 32)} ${pad('Tip', 11)} ${pad('Opština', 20)} ${pad('CR', 3)} ${pad('Univerzitet', 30)} ${pad('Status', 9)} ${pad('2FA', 4)} ${pad('Last login', 17)}`,
   );
-  console.log('  ' + '-'.repeat(124));
+  console.log('  ' + '-'.repeat(140));
 
   for (const a of admins) {
     let status: string;
@@ -61,22 +62,28 @@ async function main() {
     } else {
       status = 'active';
     }
+    const typ = a.role === 'municipality_admin' ? 'opštinski' : 'CR admin';
+    const opstina =
+      a.role === 'municipality_admin' ? (a.assignedOpstinaSlug ?? '—') : '—';
     console.log(
-      `  ${pad(a.email, 32)} ${pad(String(a.controlRegionId), 3)} ${pad(a.controlRegion?.name ?? '—', 36)} ${pad(status, 9)} ${pad(a.totpEnabledAt ? 'on' : 'off', 4)} ${pad(fmtDate(a.lastLoginAt), 17)} ${pad(fmtDate(a.createdAt), 17)}`,
+      `  ${pad(a.email, 32)} ${pad(typ, 11)} ${pad(opstina, 20)} ${pad(String(a.controlRegionId), 3)} ${pad(a.controlRegion?.name ?? '—', 30)} ${pad(status, 9)} ${pad(a.totpEnabledAt ? 'on' : 'off', 4)} ${pad(fmtDate(a.lastLoginAt), 17)}`,
     );
   }
 
-  // Sažetak po CR-u
-  const byCr = new Map<number, number>();
+  // Sažetak po CR-u (zasebno za CR admine i opštinske)
+  const crCounts = new Map<number, { cr: number; muni: number }>();
   for (const a of admins) {
     if (a.deletedAt) continue;
     if (a.lockedUntil && a.lockedUntil > now) continue;
-    byCr.set(a.controlRegionId, (byCr.get(a.controlRegionId) ?? 0) + 1);
+    const bucket = crCounts.get(a.controlRegionId) ?? { cr: 0, muni: 0 };
+    if (a.role === 'municipality_admin') bucket.muni++;
+    else bucket.cr++;
+    crCounts.set(a.controlRegionId, bucket);
   }
-  if (byCr.size > 0) {
+  if (crCounts.size > 0) {
     console.log('\nAktivni admini po CR-u:');
-    for (const [cr, n] of [...byCr.entries()].sort((a, b) => a[0] - b[0])) {
-      console.log(`  CR ${cr}: ${n}`);
+    for (const [cr, n] of [...crCounts.entries()].sort((a, b) => a[0] - b[0])) {
+      console.log(`  CR ${cr}: ${n.cr} CR admina, ${n.muni} opštinskih`);
     }
   }
   console.log();

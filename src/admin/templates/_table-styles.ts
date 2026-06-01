@@ -331,6 +331,14 @@ export const ADMIN_TABLE_STYLES = /* css */ `
     color: #78350f;
     margin-left: 6px;
   }
+  .state-badge.state-cr {
+    background: #e0e7ff;
+    color: #3730a3;
+  }
+  .state-badge.state-muni {
+    background: #fce7f3;
+    color: #9d174d;
+  }
   tr.deactivated td { opacity: 0.6; }
   tr.deactivated .name { text-decoration: line-through; }
 

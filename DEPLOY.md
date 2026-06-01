@@ -345,7 +345,74 @@ Posle ovoga novi admin se loguje na `/kontrola-admin/login` i vidi **samo** svoj
 
 ---
 
-## 15) Bezbednosna preporuka
+## 15) Opštinski admini (dvonivovska hijerarhija)
+
+Aplikacija podržava dva tipa admina, oba scopovana striktno na svoj univerzitet (CR):
+
+| Rola | Vidi | Akcije |
+| --- | --- | --- |
+| **CR admin** (`role='admin'`) | **Sve** opštine svog univerziteta | Sve: prijave, eksport, grupisano, audit log, anketa toggle, upravljanje adminima |
+| **Opštinski admin** (`role='municipality_admin'`) | **Samo jednu opštinu** | Prijave + eksport (CSV/JSON) **samo za tu opštinu**, lozinka, 2FA |
+
+Opštinski admin **ne može**: da vidi audit log, da otvori/zatvori anketu, da kreira ili menja druge admine. Pokušaj direktnog pristupa tim URL-ovima vraća 303/403 (zaštićeno guard-om u kodu).
+
+### Kreiranje opštinskog admina iz UI
+
+CR admin se loguje pa ide na `/kontrola-admin/admini`:
+
+1. U formi "Dodaj novog admina" izabere **Opštinski admin**.
+2. Pojavi se dropdown sa svim opštinama tog univerziteta.
+3. Unese email + lozinku + opštinu i klikne "Kreiraj admina".
+4. Bezbedno prosledi pristupne podatke novom adminu (Signal/Bitwarden Send).
+
+### Kreiranje opštinskog admina iz CLI (alternativa)
+
+```bash
+cd /opt/kontrola
+# Primer: opštinski admin za Novi Sad u CR=4 (UNS)
+npm run admin:create -- --email=novisad@kontrola.org --cr=4 --opstina=novi-sad
+```
+
+Slug-ovi opština se mogu naći u `data/opstine-list.txt`.
+
+### Pregled svih admina iz CLI
+
+```bash
+npm run admin:list
+```
+
+Ispis pokazuje: tip (CR/opštinski), opštinu (samo za opštinske), CR, status, 2FA, last login. Sažetak na kraju daje broj aktivnih CR admina i opštinskih admina po univerzitetu.
+
+### Migracija na ovu funkcionalnost (live deploy)
+
+Migracija je **additive** — postojeći admini se NE menjaju (svi postaju `role='admin'`, koja je i bila default), nova kolona `assigned_opstina_slug` je `NULL`.
+
+```bash
+cd /opt/kontrola
+git pull
+npm ci
+npx prisma generate
+npm run build
+npx prisma migrate deploy     # primeni novu migraciju
+sudo systemctl restart kontrola
+```
+
+**Zero-downtime sigurnost:**
+- Migracija samo dodaje (`ALTER TYPE ... ADD VALUE`, `ALTER TABLE ADD COLUMN nullable`, novi index). Nema lock-ova na podatke.
+- Postojeći podaci (prijave, admini, sesije) ostaju netaknuti.
+- Rollback: stari kod radi pravilno i sa novom shemom (ignoriše nove kolone/vrednosti). Ako treba — `systemctl restart kontrola` na staru verziju.
+
+### Tipični problemi sa opštinskim adminima
+
+| Simptom | Uzrok | Fix |
+| --- | --- | --- |
+| Opštinski admin posle login-a vidi prazne prijave | Opština koju mu je dodeljen je u CR-u sa `surveyOpen=false` (data na javnu formu nije ulazila) | Otvori anketu, ili daj mu drugu opštinu |
+| `create_invalid_opstina` greška u UI | Slug ne pripada admin-ovom CR-u (zaštita od forging-a) | Proveri `data/opstine-list.txt`, slug se mora poklapati |
+| Nema pristupa `/audit`, `/anketa`, `/admini` | Opštinski admin se redirektuje na `/kontrola-admin` (to je očekivano) | Za pristup tim stranicama mora biti CR admin |
+
+---
+
+## 16) Bezbednosna preporuka
 
 - **SSH:** isključi password login, ostavi samo ključ
 - **2FA na admin nalogu:** uključi odmah na produkciji (`/kontrola-admin/sigurnost`)

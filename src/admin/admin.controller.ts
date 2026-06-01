@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PollingStationsService } from '../polling-stations/polling-stations.service';
 import { SessionGuard } from '../auth/guards/session.guard';
 import { CsrfGuard } from '../auth/guards/csrf.guard';
+import { CrAdminGuard } from '../auth/guards/cr-admin.guard';
 import { CurrentSession } from '../auth/decorators/current-session';
 import type { ValidSession } from '../auth/sessions.service';
 import { ADMIN_BASE, ADMIN_PATH } from '../auth/auth.constants';
@@ -68,9 +69,36 @@ export class AdminController {
     };
   }
 
-  /** The mandatory scope passed to all admin service methods. */
-  private scopeOf(session: ValidSession): { controlRegionId: number } {
-    return { controlRegionId: session.controlRegionId };
+  /**
+   * The mandatory scope passed to all admin service methods.
+   * Carries both level-1 (CR) and optional level-2 (opština) boundary.
+   * AdminService.buildWhere() enforces both.
+   */
+  private scopeOf(session: ValidSession): {
+    controlRegionId: number;
+    assignedOpstinaSlug: string | null;
+  } {
+    return {
+      controlRegionId: session.controlRegionId,
+      assignedOpstinaSlug:
+        session.role === 'municipality_admin'
+          ? session.assignedOpstinaSlug
+          : null,
+    };
+  }
+
+  /**
+   * Look up the human-readable opština name for a municipality admin badge.
+   * Returns null for CR admins or when slug is unknown.
+   */
+  private async opstinaNazivForSession(
+    session: ValidSession,
+  ): Promise<string | null> {
+    if (session.role !== 'municipality_admin' || !session.assignedOpstinaSlug) {
+      return null;
+    }
+    const meta = await this.stations.getOpstinaMeta(session.assignedOpstinaSlug);
+    return meta?.naziv ?? session.assignedOpstinaSlug;
   }
 
   // ========== GET / — registration list ==========
@@ -85,15 +113,26 @@ export class AdminController {
     const scope = this.scopeOf(session);
     const filters = this.admin.parseFilters(query);
     const { page, pageSize } = this.admin.parsePagination(query);
-    const [{ rows, total, totalPages }, opstine, ctx] = await Promise.all([
-      this.admin.listRegistrations({ ...filters, page, pageSize }, scope),
-      this.stations.listOpstineForControlRegion(scope.controlRegionId),
-      this.userContext(session),
-    ]);
+    const [{ rows, total, totalPages }, opstineAll, ctx, opstinaNaziv] =
+      await Promise.all([
+        this.admin.listRegistrations({ ...filters, page, pageSize }, scope),
+        this.stations.listOpstineForControlRegion(scope.controlRegionId),
+        this.userContext(session),
+        this.opstinaNazivForSession(session),
+      ]);
+
+    // For municipality admins, the dropdown should show ONLY their opština
+    // (no option to switch). For CR admins, the full CR list is shown.
+    const opstine =
+      session.role === 'municipality_admin' && session.assignedOpstinaSlug
+        ? opstineAll.filter((o) => o.slug === session.assignedOpstinaSlug)
+        : opstineAll;
 
     return adminListPage({
       userEmail: ctx.email,
       controlRegionName: ctx.controlRegionName,
+      role: session.role,
+      assignedOpstinaNaziv: opstinaNaziv,
       filters,
       opstine,
       rows,
@@ -103,8 +142,9 @@ export class AdminController {
     });
   }
 
-  // ========== GET /grupisano — counts per municipality ==========
+  // ========== GET /grupisano — counts per municipality (CR admin only) ==========
   @Get('grupisano')
+  @UseGuards(CrAdminGuard)
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('X-Content-Type-Options', 'nosniff')
   async grouped(
@@ -125,8 +165,9 @@ export class AdminController {
     });
   }
 
-  // ========== GET /anketa — per-region toggle page ==========
+  // ========== GET /anketa — per-region toggle page (CR admin only) ==========
   @Get('anketa')
+  @UseGuards(CrAdminGuard)
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('X-Content-Type-Options', 'nosniff')
   async anketa(
@@ -153,9 +194,9 @@ export class AdminController {
     });
   }
 
-  // ========== POST /anketa/toggle — per-region close/open ==========
+  // ========== POST /anketa/toggle — per-region close/open (CR admin only) ==========
   @Post('anketa/toggle')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async anketaToggle(
     @Body() body: { action?: string },
@@ -249,6 +290,7 @@ export class AdminController {
   // ========== Audit log (/kontrola-admin/audit) ==========
 
   @Get('audit')
+  @UseGuards(CrAdminGuard)
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('X-Content-Type-Options', 'nosniff')
   async auditList(
@@ -287,6 +329,7 @@ export class AdminController {
    * raw user input directly to avoid XSS via the query string.
    */
   @Get('admini')
+  @UseGuards(CrAdminGuard)
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('X-Content-Type-Options', 'nosniff')
   async listAdmini(
@@ -294,35 +337,75 @@ export class AdminController {
     @Query('msg') msg: string | undefined,
     @Query('err') err: string | undefined,
   ): Promise<string> {
-    const [users, ctx] = await Promise.all([
+    const [users, ctx, opstineCr] = await Promise.all([
       this.adminUsers.listAdmins(session.userId, session.controlRegionId),
       this.userContext(session),
+      this.stations.listOpstineForControlRegion(session.controlRegionId),
     ]);
     return adminUsersPage({
       userEmail: ctx.email,
       controlRegionName: ctx.controlRegionName,
       csrfToken: session.csrfToken,
       users,
+      opstineCr,
       message: this.adminUserMsg(msg),
       error: this.adminUserErr(err),
     });
   }
 
   @Post('admini/novi')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async createAdmin(
-    @Body() body: { email?: string; password?: string },
+    @Body()
+    body: {
+      email?: string;
+      password?: string;
+      role?: string;
+      opstinaSlug?: string;
+    },
     @CurrentSession() session: ValidSession,
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<void> {
     try {
+      const rawRole = (body?.role ?? '').toLowerCase();
+      const role: 'admin' | 'municipality_admin' =
+        rawRole === 'municipality_admin' ? 'municipality_admin' : 'admin';
+
+      let assignedOpstinaSlug: string | null = null;
+      if (role === 'municipality_admin') {
+        const slug = (body?.opstinaSlug ?? '').trim();
+        if (!slug || !/^[a-z0-9-]{1,80}$/.test(slug)) {
+          res
+            .header(
+              'location',
+              `${ADMIN_PATH}/admini?err=create_invalid_opstina`,
+            )
+            .send();
+          return;
+        }
+        // Verify slug belongs to this CR (anti-forgery)
+        const meta = await this.stations.getOpstinaMeta(slug);
+        if (!meta || meta.controlRegionId !== session.controlRegionId) {
+          res
+            .header(
+              'location',
+              `${ADMIN_PATH}/admini?err=create_invalid_opstina`,
+            )
+            .send();
+          return;
+        }
+        assignedOpstinaSlug = slug;
+      }
+
       // New admins are always created in the inviting admin's control region.
       // Cross-region admin creation is intentionally not allowed via UI.
       await this.adminUsers.createAdmin({
         email: body?.email ?? '',
         password: body?.password ?? '',
+        role,
+        assignedOpstinaSlug,
         controlRegionId: session.controlRegionId,
         byUserId: session.userId,
         ipAddress: (req.ip || '').toString(),
@@ -336,7 +419,7 @@ export class AdminController {
   }
 
   @Post('admini/:id/lozinka')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async resetAdminPassword(
     @Param('id') id: string,
@@ -363,7 +446,7 @@ export class AdminController {
   }
 
   @Post('admini/:id/deaktiviraj')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async deactivateAdmin(
     @Param('id') id: string,
@@ -388,7 +471,7 @@ export class AdminController {
   }
 
   @Post('admini/:id/reaktiviraj')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async reactivateAdmin(
     @Param('id') id: string,
@@ -413,7 +496,7 @@ export class AdminController {
   }
 
   @Post('admini/:id/odjavi-sesije')
-  @UseGuards(CsrfGuard)
+  @UseGuards(CrAdminGuard, CsrfGuard)
   @HttpCode(303)
   async revokeAdminSessions(
     @Param('id') id: string,
@@ -473,6 +556,8 @@ export class AdminController {
         return 'Email nije validan.';
       case 'create_invalid_password':
         return 'Lozinka nije validna (min 12 karaktera).';
+      case 'create_invalid_opstina':
+        return 'Izabrana opština nije validna ili ne pripada vašem univerzitetu.';
       case 'create_conflict':
         return 'Već postoji admin sa tim email-om.';
       case 'password_invalid':

@@ -1,5 +1,6 @@
 import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 import type { AdminUserRow } from '../admin-users.service';
+import type { OpstinaListItem } from '../../polling-stations/polling-stations.service';
 
 const DATE_FMT = new Intl.DateTimeFormat('sr-Latn-RS', {
   year: 'numeric',
@@ -18,11 +19,29 @@ export type AdminUsersPageOpts = {
   controlRegionName: string;
   csrfToken: string;
   users: AdminUserRow[];
+  /** All opštine of the active CR — for the "Opštinski admin" creation form. */
+  opstineCr: OpstinaListItem[];
   message?: string;
   error?: string;
 };
 
+/** Helper — find pretty opština name by slug from a list (for table display). */
+function opstinaNazivBySlug(
+  opstine: OpstinaListItem[],
+  slug: string | null,
+): string {
+  if (!slug) return '—';
+  return opstine.find((o) => o.slug === slug)?.naziv ?? slug;
+}
+
 export function adminUsersPage(opts: AdminUsersPageOpts): string {
+  const opstinaOptions = opts.opstineCr
+    .map(
+      (o) =>
+        `<option value="${escapeHtml(o.slug)}">${escapeHtml(o.naziv)}</option>`,
+    )
+    .join('');
+
   const rows = opts.users
     .map((u) => {
       const stateBadge = u.deletedAt
@@ -36,6 +55,11 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
         u.failedLoginCount > 0 && !u.deletedAt
           ? `<br><span class="muted" style="font-size:12px">Neuspešnih: ${u.failedLoginCount}</span>`
           : '';
+
+      const roleBadge =
+        u.role === 'municipality_admin'
+          ? `<span class="state-badge state-muni">Opštinski</span><br><span class="muted" style="font-size:12px">${escapeHtml(opstinaNazivBySlug(opts.opstineCr, u.assignedOpstinaSlug))}</span>`
+          : `<span class="state-badge state-cr">CR admin</span>`;
 
       const actions: string[] = [];
 
@@ -74,6 +98,7 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
             ${escapeHtml(u.email)}
             ${u.isSelf ? '<span class="state-badge state-self">vi</span>' : ''}
           </td>
+          <td>${roleBadge}</td>
           <td>${stateBadge}${locked}${failed}</td>
           <td>${fmtDate(u.createdAt)}</td>
           <td>${fmtDate(u.lastLoginAt)}</td>
@@ -92,6 +117,7 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
             <thead>
               <tr>
                 <th>Email</th>
+                <th>Tip</th>
                 <th>Status</th>
                 <th>Kreiran</th>
                 <th>Poslednji login</th>
@@ -116,9 +142,24 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
 
     <div class="card" style="margin-bottom:24px;padding-bottom:36px">
       <h2 style="margin:0 0 16px;font-size:16px;font-weight:600">Dodaj novog admina</h2>
-      <form method="POST" action="/kontrola-admin/admini/novi" autocomplete="off">
+      <form method="POST" action="/kontrola-admin/admini/novi" autocomplete="off" id="newAdminForm">
         <input type="hidden" name="_csrf" value="${escapeHtml(opts.csrfToken)}" />
-        <div class="filters" style="grid-template-columns:1fr 1fr auto;margin-bottom:0;padding:0;background:transparent;border:0">
+
+        <div class="field" style="margin-bottom:14px">
+          <label style="margin-bottom:6px">Tip admina</label>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+            <label class="role-pick" style="display:inline-flex;align-items:center;gap:6px;font-weight:500">
+              <input type="radio" name="role" value="admin" checked />
+              <span>CR admin <span class="muted" style="font-weight:400;font-size:12px">(vidi sve opštine vašeg univerziteta)</span></span>
+            </label>
+            <label class="role-pick" style="display:inline-flex;align-items:center;gap:6px;font-weight:500">
+              <input type="radio" name="role" value="municipality_admin" />
+              <span>Opštinski admin <span class="muted" style="font-weight:400;font-size:12px">(samo jedna opština)</span></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="filters" style="grid-template-columns:1fr 1fr 1fr auto;margin-bottom:0;padding:0;background:transparent;border:0">
           <div class="field">
             <label for="newEmail">Email</label>
             <input id="newEmail" name="email" type="email" required maxlength="254" autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -127,6 +168,13 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
             <label for="newPassword">Lozinka</label>
             <input id="newPassword" name="password" type="password" required minlength="12" maxlength="200" autocomplete="new-password" />
             <span class="hint">Min. 12 karaktera. Bezbedno prosledi novom adminu.</span>
+          </div>
+          <div class="field" id="opstinaField" style="display:none">
+            <label for="newOpstina">Opština</label>
+            <select id="newOpstina" name="opstinaSlug" disabled>
+              <option value="">— izaberi opštinu —</option>
+              ${opstinaOptions}
+            </select>
           </div>
           <div class="actions">
             <button type="submit">Kreiraj admina</button>
@@ -147,6 +195,24 @@ export function adminUsersPage(opts: AdminUsersPageOpts): string {
       form.elements['newPassword'].value = p;
       return confirm('Resetovati lozinku? Korisnik će biti odjavljen sa svih uređaja.');
     }
+    (function(){
+      var form = document.getElementById('newAdminForm');
+      if (!form) return;
+      var radios = form.querySelectorAll('input[name="role"]');
+      var field = document.getElementById('opstinaField');
+      var sel = document.getElementById('newOpstina');
+      function sync(){
+        var isMuni = form.elements['role'].value === 'municipality_admin';
+        field.style.display = isMuni ? '' : 'none';
+        sel.disabled = !isMuni;
+        sel.required = isMuni;
+        if (!isMuni) sel.value = '';
+      }
+      for (var i = 0; i < radios.length; i++){
+        radios[i].addEventListener('change', sync);
+      }
+      sync();
+    })();
   `;
 
   return adminLayout({

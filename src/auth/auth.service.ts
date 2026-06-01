@@ -78,7 +78,13 @@ export class AuthService {
     password: string;
     ipAddress: string;
     userAgent?: string;
-  }): Promise<{ userId: string; controlRegionId: number; requires2fa: boolean }> {
+  }): Promise<{
+    userId: string;
+    controlRegionId: number;
+    role: 'admin' | 'municipality_admin';
+    assignedOpstinaSlug: string | null;
+    requires2fa: boolean;
+  }> {
     const email = opts.email?.trim()?.toLowerCase();
     const password = opts.password ?? '';
     const auditCtx = {
@@ -191,20 +197,38 @@ export class AuthService {
     // 6) Password OK — check whether 2FA is enabled
     const has2fa = !!user.totpEnabledAt && !!user.totpSecret;
 
+    // Normalize role + assigned opština (defensive — see sessions.service)
+    const role: 'admin' | 'municipality_admin' =
+      user.role === 'municipality_admin' ? 'municipality_admin' : 'admin';
+    const assignedOpstinaSlug =
+      role === 'municipality_admin' ? (user.assignedOpstinaSlug ?? null) : null;
+
     if (has2fa) {
       // Reset only rate limit; failedLoginCount and lockout reset
       // ONLY after 2FA succeeds, so credential stuffing with a stolen password
       // can still exhaust the lockout threshold quickly.
       this.rateLimit.reset(opts.ipAddress);
       this.logger.log(
-        `Login step 1 OK (2FA needed): user=${user.id.slice(0, 8)}`,
+        `Login step 1 OK (2FA needed): user=${user.id.slice(0, 8)} role=${role}`,
       );
-      return { userId: user.id, controlRegionId: user.controlRegionId, requires2fa: true };
+      return {
+        userId: user.id,
+        controlRegionId: user.controlRegionId,
+        role,
+        assignedOpstinaSlug,
+        requires2fa: true,
+      };
     }
 
     // No 2FA → final success
     await this.finalizeLoginSuccess(user.id, user.controlRegionId, opts.ipAddress, opts.userAgent);
-    return { userId: user.id, controlRegionId: user.controlRegionId, requires2fa: false };
+    return {
+      userId: user.id,
+      controlRegionId: user.controlRegionId,
+      role,
+      assignedOpstinaSlug,
+      requires2fa: false,
+    };
   }
 
   /**
@@ -219,7 +243,12 @@ export class AuthService {
     code: string;
     ipAddress: string;
     userAgent?: string;
-  }): Promise<{ userId: string; controlRegionId: number }> {
+  }): Promise<{
+    userId: string;
+    controlRegionId: number;
+    role: 'admin' | 'municipality_admin';
+    assignedOpstinaSlug: string | null;
+  }> {
     const auditCtx = {
       ipAddress: opts.ipAddress,
       userAgent: opts.userAgent ?? '',
@@ -311,7 +340,16 @@ export class AuthService {
       opts.userAgent,
       { via2fa: true },
     );
-    return { userId: user.id, controlRegionId: user.controlRegionId };
+    const role: 'admin' | 'municipality_admin' =
+      user.role === 'municipality_admin' ? 'municipality_admin' : 'admin';
+    const assignedOpstinaSlug =
+      role === 'municipality_admin' ? (user.assignedOpstinaSlug ?? null) : null;
+    return {
+      userId: user.id,
+      controlRegionId: user.controlRegionId,
+      role,
+      assignedOpstinaSlug,
+    };
   }
 
   /** Reset counters; record LOGIN_OK or LOGIN_2FA_OK. */

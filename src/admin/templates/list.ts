@@ -32,6 +32,10 @@ function filtersToQuery(filters: ListFilters, extra: Record<string, string | num
 export type ListPageOpts = {
   userEmail: string;
   controlRegionName: string;
+  /** Role of the active user — controls layout (nav) and filter UI. */
+  role: 'admin' | 'municipality_admin';
+  /** Opština name (pretty) for the municipality admin badge. */
+  assignedOpstinaNaziv: string | null;
   filters: ListFilters;
   opstine: OpstinaListItem[];
   rows: RegistrationRow[];
@@ -82,11 +86,27 @@ function paginationHtml(opts: ListPageOpts): string {
 }
 
 export function adminListPage(opts: ListPageOpts): string {
+  const isMuni = opts.role === 'municipality_admin';
   const exportQuery = filtersToQuery(opts.filters);
   const exportSuffix = exportQuery ? `?${exportQuery}` : '';
 
-  const filtersHtml = `
-    <form class="filters" method="GET" action="/kontrola-admin">
+  // Municipality admin: opština dropdown is single-option and disabled
+  // (server-side scope already restricts to that opština — this is just UX
+  // so the admin sees clearly that they cannot switch).
+  const opstinaFieldHtml = isMuni
+    ? `
+      <div class="field">
+        <label for="opstina">Opština</label>
+        <select id="opstina" name="opstina" disabled aria-disabled="true">
+          ${opts.opstine
+            .map(
+              (o) =>
+                `<option value="${escapeHtml(o.slug)}" selected>${escapeHtml(o.naziv)}</option>`,
+            )
+            .join('')}
+        </select>
+      </div>`
+    : `
       <div class="field">
         <label for="opstina">Opština</label>
         <select id="opstina" name="opstina">
@@ -98,7 +118,11 @@ export function adminListPage(opts: ListPageOpts): string {
             )
             .join('')}
         </select>
-      </div>
+      </div>`;
+
+  const filtersHtml = `
+    <form class="filters" method="GET" action="/kontrola-admin">
+      ${opstinaFieldHtml}
       <div class="field">
         <label for="od">Od datuma</label>
         <input id="od" name="od" type="date" value="${escapeHtml(opts.filters.od ?? '')}" />
@@ -114,11 +138,16 @@ export function adminListPage(opts: ListPageOpts): string {
     </form>
   `;
 
+  // Municipality admin: NO "Grupisano" link (CR-only feature).
+  const groupedLinkHtml = isMuni
+    ? ''
+    : `<a href="/kontrola-admin/grupisano${exportSuffix}">Grupisano po opštini</a>`;
+
   const summaryHtml = `
     <div class="summary">
-      <div>Ukupno: <strong>${opts.total}</strong> prijava${opts.filters.opstina || opts.filters.od || opts.filters.do ? ' (sa filterima)' : ''}</div>
+      <div>Ukupno: <strong>${opts.total}</strong> prijava${opts.filters.opstina || opts.filters.od || opts.filters.do || isMuni ? ' (u vašem opsegu)' : ''}</div>
       <div class="export-links">
-        <a href="/kontrola-admin/grupisano${exportSuffix}">Grupisano po opštini</a>
+        ${groupedLinkHtml}
         <a href="/kontrola-admin/export.csv${exportSuffix}">CSV</a>
         <a href="/kontrola-admin/export.json${exportSuffix}">JSON</a>
       </div>
@@ -180,5 +209,7 @@ export function adminListPage(opts: ListPageOpts): string {
     bodyHtml: body,
     userEmail: opts.userEmail,
     controlRegionName: opts.controlRegionName,
+    role: opts.role,
+    opstinaNaziv: opts.assignedOpstinaNaziv,
   });
 }

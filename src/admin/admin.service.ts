@@ -23,11 +23,17 @@ export type ListQuery = ListFilters & {
 };
 
 /**
- * Scope — every admin query MUST pass the admin's controlRegionId.
- * This is the security boundary that prevents cross-region access.
+ * Scope — every admin query MUST pass:
+ *   - controlRegionId   (level 1, mandatory): the admin's university
+ *   - assignedOpstinaSlug (level 2, optional): if set, query is further
+ *     restricted to a single opština (municipality admin). When set, the
+ *     user-provided `filters.opstina` is IGNORED — the session scope wins.
+ *
+ * This is the security boundary that prevents cross-region/cross-opština access.
  */
 export type Scope = {
   controlRegionId: number;
+  assignedOpstinaSlug?: string | null;
 };
 
 export type RegistrationRow = {
@@ -98,8 +104,13 @@ export class AdminService {
   }
 
   /**
-   * Build WHERE clause with mandatory control region scope.
-   * This is the SINGLE place where the cross-region boundary is enforced.
+   * Build WHERE clause with mandatory control region scope (and optionally
+   * opština scope for municipality admins).
+   *
+   * This is the SINGLE place where both scope levels are enforced.
+   *   - Level 1: controlRegionId — always applied.
+   *   - Level 2: assignedOpstinaSlug — applied when present in scope,
+   *              overrides any user-provided `filters.opstina`.
    */
   private buildWhere(
     filters: ListFilters,
@@ -108,7 +119,13 @@ export class AdminService {
     const where: Prisma.RegistrationWhereInput = {
       controlRegionId: scope.controlRegionId,
     };
-    if (filters.opstina) where.opstinaSlug = filters.opstina;
+    // Session-bound opština ALWAYS wins over user-provided filter — this
+    // prevents a municipality admin from snooping other opštine via ?opstina=.
+    if (scope.assignedOpstinaSlug) {
+      where.opstinaSlug = scope.assignedOpstinaSlug;
+    } else if (filters.opstina) {
+      where.opstinaSlug = filters.opstina;
+    }
     if (filters.od || filters.do) {
       where.submittedAt = {};
       if (filters.od) {

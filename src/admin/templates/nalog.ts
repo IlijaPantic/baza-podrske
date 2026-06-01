@@ -3,6 +3,10 @@ import { adminLayout, escapeHtml } from '../../auth/templates/admin-layout';
 export type NalogPageOpts = {
   userEmail: string;
   controlRegionName: string;
+  /** Role of the active user — drives nav visibility in the topbar. */
+  role?: 'admin' | 'municipality_admin';
+  /** Opština name (pretty) for the topbar badge if municipality admin. */
+  opstinaNaziv?: string | null;
   csrfToken: string;
   /** Flash success message (from query ?m=changed). */
   message?: string;
@@ -74,5 +78,7 @@ export function nalogPage(opts: NalogPageOpts): string {
     bodyHtml,
     userEmail: opts.userEmail,
     controlRegionName: opts.controlRegionName,
+    role: opts.role,
+    opstinaNaziv: opts.opstinaNaziv,
   });
 }

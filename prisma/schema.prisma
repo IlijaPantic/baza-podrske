@@ -31,7 +31,12 @@ datasource db {
 // ============================================================================
 
 enum UserRole {
+  /// Control-region admin — full access within one university (CR scope).
   admin
+  /// Municipality admin — scoped to ONE opština within a CR. Can only view
+  /// and export prijave for that opština. Cannot manage admins, toggle the
+  /// survey, see audit log, or see grouped counts.
+  municipality_admin
 }
 
 // ============================================================================
@@ -70,8 +75,13 @@ model User {
   email            String    @unique @db.Citext
   passwordHash     String    @map("password_hash")
   role             UserRole  @default(admin)
-  /// Scope boundary — admin can only see data of this control region.
+  /// Scope boundary (level 1) — admin can only see data of this control region.
   controlRegionId  Int       @map("control_region_id")
+  /// Scope boundary (level 2, optional) — set only for `municipality_admin`
+  /// role. When set, admin can only see prijave with `opstinaSlug` equal to
+  /// this value (must belong to `controlRegionId`).
+  /// For `admin` role this MUST be null (no per-opština restriction).
+  assignedOpstinaSlug String? @map("assigned_opstina_slug")
   lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz
   failedLoginCount Int       @default(0) @map("failed_login_count")
   lockedUntil      DateTime? @map("locked_until") @db.Timestamptz
@@ -88,6 +98,7 @@ model User {
 
   @@index([controlRegionId])
   @@index([deletedAt])
+  @@index([controlRegionId, assignedOpstinaSlug])
   @@map("users")
 }
 

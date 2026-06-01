@@ -76,6 +76,19 @@ const ADMIN_STYLES = /* css */ `
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
+  .admin-topbar .topbar-opstina {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.28);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
   .admin-topbar .topbar-right {
     display: flex;
     align-items: center;
@@ -133,6 +146,15 @@ export type AdminLayoutOpts = {
   userEmail?: string;
   /** Name of the admin's control region (e.g. "Univerzitet u Novom Sadu"). */
   controlRegionName?: string;
+  /**
+   * Role of the active user. Drives which topbar items are visible:
+   *   - 'admin'              → Anketa, Admini, Audit visible
+   *   - 'municipality_admin' → those hidden (cannot access)
+   * If undefined (login pages), no topbar is rendered anyway.
+   */
+  role?: 'admin' | 'municipality_admin';
+  /** Pretty opština name for the municipality admin badge ("Bačka Palanka"). */
+  opstinaNaziv?: string | null;
   /** Whether to add CSP allowing inline <script>. Login has no JS; dashboard enables where needed. */
   allowInlineScript?: boolean;
   inlineScript?: string;
@@ -148,18 +170,31 @@ export type AdminLayoutOpts = {
  *  - inline script disabled by default (login only; dashboard opts in where needed)
  */
 export function adminLayout(opts: AdminLayoutOpts): string {
+  // Municipality admin: hide CR-level admin tools (anketa, admini, audit).
+  // Always show 'Nalog' and '2FA' (self-service) and 'Odjavi me'.
+  const isCrAdmin = opts.role !== 'municipality_admin';
+  const crLinks = isCrAdmin
+    ? `
+        <a href="/kontrola-admin/anketa">Anketa</a>
+        <a href="/kontrola-admin/admini">Admini</a>
+        <a href="/kontrola-admin/audit">Audit</a>`
+    : '';
+
+  const opstinaBadge =
+    opts.role === 'municipality_admin' && opts.opstinaNaziv
+      ? `<span class="topbar-opstina" title="Vaša opština">${escapeHtml(opts.opstinaNaziv)}</span>`
+      : '';
+
   const topbar = opts.userEmail
     ? `
     <nav class="admin-topbar" aria-label="Admin navigacija">
       <div class="topbar-left">
         <a class="topbar-brand" href="/kontrola-admin" title="Početna — prijave">Kontrola</a>
         ${opts.controlRegionName ? `<span class="topbar-region" title="Univerzitet">${escapeHtml(opts.controlRegionName)}</span>` : ''}
+        ${opstinaBadge}
         <span class="topbar-email">${escapeHtml(opts.userEmail)}</span>
       </div>
-      <div class="topbar-right">
-        <a href="/kontrola-admin/anketa">Anketa</a>
-        <a href="/kontrola-admin/admini">Admini</a>
-        <a href="/kontrola-admin/audit">Audit</a>
+      <div class="topbar-right">${crLinks}
         <a href="/kontrola-admin/nalog">Nalog</a>
         <a href="/kontrola-admin/2fa">2FA</a>
         <form method="POST" action="/kontrola-admin/logout">

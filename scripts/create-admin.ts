@@ -2,7 +2,11 @@
  * Bootstrap script — creates a new admin user (scoped to a control region).
  *
  * Run:
+ *   # CR admin (sees all opštine of one university):
  *   npm run admin:create -- --email=admin@kontrola.org --cr=4
+ *
+ *   # Municipality admin (scoped to one opština within a CR):
+ *   npm run admin:create -- --email=novisad@kontrola.org --cr=4 --opstina=novi-sad
  *
  * Where --cr=N is the control_region ID (1..6):
  *   1 = Univerzitet u Novom Pazaru
@@ -17,6 +21,7 @@
  *  - Prompts for password interactively (hidden input via readline)
  *  - Validates: min 12 characters, max 200
  *  - Hashes with Argon2id (OWASP parameters)
+ *  - For --opstina, verifies the slug belongs to the given --cr
  *  - Inserts into users table (or updates existing if --update is passed)
  *
  * Idempotent with --update; without --update throws if email already exists.
@@ -37,9 +42,15 @@ const PASSWORD_MIN_LENGTH = 12;
 function parseArgs(argv: string[]): {
   email?: string;
   controlRegionId?: number;
+  opstinaSlug?: string;
   update: boolean;
 } {
-  const out: { email?: string; controlRegionId?: number; update: boolean } = {
+  const out: {
+    email?: string;
+    controlRegionId?: number;
+    opstinaSlug?: string;
+    update: boolean;
+  } = {
     update: false,
   };
   for (const a of argv) {
@@ -47,6 +58,9 @@ function parseArgs(argv: string[]): {
     if (a.startsWith('--cr=')) {
       const n = parseInt(a.slice('--cr='.length).trim(), 10);
       if (Number.isInteger(n)) out.controlRegionId = n;
+    }
+    if (a.startsWith('--opstina=')) {
+      out.opstinaSlug = a.slice('--opstina='.length).trim().toLowerCase();
     }
     if (a === '--update') out.update = true;
   }
@@ -95,10 +109,13 @@ function promptHidden(rl: Interface, question: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const { email, controlRegionId, update } = parseArgs(process.argv.slice(2));
+  const { email, controlRegionId, opstinaSlug, update } = parseArgs(
+    process.argv.slice(2),
+  );
   if (!email) {
     console.error('Greška: --email=<adresa> je obavezan.');
     console.error('Primer: npm run admin:create -- --email=admin@kontrola.org --cr=4');
+    console.error('         npm run admin:create -- --email=novisad@kontrola.org --cr=4 --opstina=novi-sad');
     process.exit(2);
   }
 
@@ -111,6 +128,15 @@ async function main(): Promise<void> {
     console.error('Greška: --cr=<id> je obavezan pri kreiranju novog admina.');
     console.error('  1=Novi Pazar, 2=Kragujevac, 3=Niš, 4=Novi Sad, 5=Beograd, 6=Ostalo');
     process.exit(2);
+  }
+
+  if (opstinaSlug !== undefined) {
+    if (!/^[a-z0-9-]{1,80}$/.test(opstinaSlug)) {
+      console.error(
+        'Greška: --opstina mora biti slug oblik (mala slova, brojevi, crtice).',
+      );
+      process.exit(2);
+    }
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -150,6 +176,29 @@ async function main(): Promise<void> {
       console.log(`Control region: ${cr.id} — ${cr.name}`);
     }
 
+    // If --opstina passed, verify slug exists in the given CR.
+    if (opstinaSlug !== undefined) {
+      if (controlRegionId === undefined) {
+        console.error('Greška: --opstina zahteva --cr.');
+        process.exit(2);
+      }
+      const ps = await prisma.pollingStation.findFirst({
+        where: { opstinaSlug, controlRegionId },
+        select: { opstinaLat: true, opstinaSlug: true },
+      });
+      if (!ps) {
+        console.error(
+          `Greška: opština "${opstinaSlug}" ne pripada CR ${controlRegionId}.`,
+        );
+        console.error('Proveri data/opstine-list.txt za validne slug-ove.');
+        process.exit(2);
+      }
+      console.log(`Opština: ${ps.opstinaLat} (slug=${ps.opstinaSlug})`);
+    }
+
+    const role: 'admin' | 'municipality_admin' =
+      opstinaSlug !== undefined ? 'municipality_admin' : 'admin';
+
     const existing = await prisma.user.findUnique({ where: { email } });
 
     if (existing && !update) {
@@ -168,6 +217,12 @@ async function main(): Promise<void> {
           deletedAt: null,
           // If --cr specified during update, change the user's control region too.
           ...(controlRegionId !== undefined && { controlRegionId }),
+          // Only touch role/opstina when --opstina is explicitly given on update.
+          // To promote a municipality_admin back to CR admin pass --opstina= (empty).
+          ...(opstinaSlug !== undefined && {
+            role,
+            assignedOpstinaSlug: opstinaSlug || null,
+          }),
         },
       });
       // On password change — revoke all existing sessions for this user
@@ -182,11 +237,15 @@ async function main(): Promise<void> {
         data: {
           email,
           passwordHash: hashed,
-          role: 'admin',
+          role,
           controlRegionId: controlRegionId!,
+          assignedOpstinaSlug:
+            role === 'municipality_admin' ? opstinaSlug! : null,
         },
       });
-      console.log(`✓ Admin kreiran: ${created.email} (id=${created.id}, cr=${created.controlRegionId})`);
+      console.log(
+        `✓ Admin kreiran: ${created.email} (id=${created.id}, cr=${created.controlRegionId}, role=${role}${opstinaSlug ? `, opstina=${opstinaSlug}` : ''})`,
+      );
     }
   } finally {
     await prisma.$disconnect();
