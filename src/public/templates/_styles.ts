@@ -97,6 +97,18 @@ export const STYLES = /* css */ `
     color: var(--c-text-soft);
     font-size: 15px;
   }
+  .header p + p {
+    margin-top: 10px;
+  }
+  .header p.note {
+    padding: 10px 12px;
+    border-left: 3px solid var(--c-primary);
+    background: var(--c-surface-alt, #f6f6f6);
+    border-radius: 4px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--c-text-muted, #555);
+  }
 
   /* ====== Card / form ====== */
   .card {

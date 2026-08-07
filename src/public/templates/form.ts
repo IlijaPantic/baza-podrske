@@ -16,8 +16,13 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
   const bodyHtml = `
     <header class="header">
       <span class="kicker">Studenti pobeđuju!</span>
-      <h1>Prijava za obuku kontrolora i posmatrača izbora</h1>
-      <p>Popunite formu - javljamo vam se uskoro. Ukoliko ste već završili studentsku obuku, molimo vas da se ne prijavljujete ponovno.</p>
+      <h1>Baza podrške</h1>
+      <p>Evidencija građana koji su izrazili spremnost da podrže studentsku listu.</p>
+      <p class="note">
+        <strong>Napomena:</strong> Prikupljeni podaci koriste se isključivo
+        u svrhu evidencije podrške i komunikacije u vezi sa aktivnostima
+        studentske liste, a u skladu sa propisima o zaštiti podataka o ličnosti.
+      </p>
     </header>
     <noscript>
       <div class="global-error">
@@ -308,7 +313,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
 `;
 
   return layout({
-    title: 'Prijava za obuku kontrolora izbora',
+    title: 'Baza podrške — studentska lista',
     bodyHtml,
     inlineScript,
   });
