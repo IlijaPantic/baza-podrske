@@ -1,3 +1,11 @@
--- Close UB (id=5) — Beograd is hidden from the public form by design
--- (only DUNP, UNIKG, UNI, UNS are exposed). Re-run idempotently.
-UPDATE control_regions SET survey_open = false WHERE id = 5;
+-- ⛔ ZASTARELO — ne pokretati više.
+--
+-- Ovaj fajl je zatvarao UB (id=5) u okviru ps_regions_2 rollout-a, kada je
+-- Beograd namerno bio skriven sa javne forme. Aktuelna namera je suprotna:
+-- SVI univerzitetski centri i sve njihove opštine moraju biti otvoreni.
+--
+-- Koristi `scripts/open-all-surveys.sql`. Ostavljeno samo radi istorije,
+-- jer ga MIGRATION.md (korak 6) referencira.
+--
+-- Original:
+--   UPDATE control_regions SET survey_open = false WHERE id = 5;

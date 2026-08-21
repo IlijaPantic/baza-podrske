@@ -2,6 +2,8 @@
 
 Sažeto uputstvo za migraciju produkcionog deploya na novu jurisdikciju (5 aktivnih univerziteta: DUNP, UNIKG, UNI, UNS + UB skriven).
 
+> **Napomena:** ovo uputstvo opisuje već izvršenu migraciju na `ps_regions_2`. Aktuelna kanonska mapa je `ps_regions_3` — vidi [MIGRATION-3.md](MIGRATION-3.md) (Jagodina, Varvarin i Ćićevac prebačeni sa UB na UNIKG).
+
 ---
 
 ## 0) Pre nego što kreneš

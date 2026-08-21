@@ -1,7 +1,7 @@
 ===========================================================
   SVE OPŠTINE — muniId i univerzitet (control region)
-  Generated: 2026-05-22T15:54:20.236Z
-  Source:    data/ps_regions_2.json
+  Generated: 2026-08-21T14:16:18.801Z
+  Source:    data/ps_regions_3.json
   Total:     191 opština
 ===========================================================
 
@@ -13,13 +13,14 @@
     156  Sjenica                          (DUNP)
     139  Tutin                            (DUNP)
 
-── UNIKG — Univerzitet u Kragujevcu  (16 opština)
+── UNIKG — Univerzitet u Kragujevcu  (18 opština)
    ────────────────────────────────────────────────────────────
     130  Aleksandrovac                    (UNIKG)
     159  Aranđelovac                      (UNIKG)
     160  Batočina                         (UNIKG)
      98  Čačak                            (UNIKG)
-     95  Gornji Milanovac                 (UNIKG)
+    135  Ćićevac                          (UNIKG)
+    118  Jagodina                         (UNIKG)
     161  Knić                             (UNIKG)
     162  Kragujevac                       (UNIKG)
     136  Kraljevo                         (UNIKG)
@@ -30,6 +31,7 @@
     120  Rekovac                          (UNIKG)
     165  Topola                           (UNIKG)
     133  Trstenik                         (UNIKG)
+    134  Varvarin                         (UNIKG)
     140  Vrnjačka Banja                   (UNIKG)
 
 ── UNI — Univerzitet u Nišu  (32 opština)
@@ -53,7 +55,7 @@
      79  Medveđa                          (UNI)
     104  Merošina                         (UNI)
     105  Niška Banja                      (UNI)
-    106  Palilula                         (UNI)
+    106  Palilula — Niš                   (UNI)
     107  Pantelej                         (UNI)
     113  Pirot                            (UNI)
     125  Preševo                          (UNI)
@@ -114,7 +116,7 @@
      34  Žitište                          (UNS)
      33  Zrenjanin                        (UNS)
 
-── UB — Univerzitet u Beogradu  (69 opština)
+── UB — Univerzitet u Beogradu  (67 opština)
    ────────────────────────────────────────────────────────────
     149  Arilje                           (UB)
     150  Bajina Bašta                     (UB)
@@ -124,14 +126,13 @@
      46  Bor                              (UB)
     131  Brus                             (UB)
     158  Čajetina                         (UB)
-    135  Ćićevac                          (UB)
      74  Čukarica                         (UB)
     122  Ćuprija                          (UB)
     117  Despotovac                       (UB)
      50  Golubac                          (UB)
+     95  Gornji Milanovac                 (UB)
      59  Grocka                           (UB)
      96  Ivanjica                         (UB)
-    118  Jagodina                         (UB)
      47  Kladovo                          (UB)
     146  Knjaževac                        (UB)
      88  Koceljeva                        (UB)
@@ -153,7 +154,7 @@
      62  Novi Beograd                     (UB)
      63  Obrenovac                        (UB)
      84  Osečina                          (UB)
-     64  Palilula                         (UB)
+     64  Palilula — Beograd               (UB)
       6  Pančevo                          (UB)
     119  Paraćin                          (UB)
      53  Petrovac na Mlavi                (UB)
@@ -174,7 +175,6 @@
      85  Ub                               (UB)
     157  Užice                            (UB)
      86  Valjevo                          (UB)
-    134  Varvarin                         (UB)
     116  Velika Plana                     (UB)
      55  Veliko Gradište                  (UB)
      93  Vladimirci                       (UB)
@@ -282,7 +282,7 @@
   61  Mladenovac                       (UB)
   62  Novi Beograd                     (UB)
   63  Obrenovac                        (UB)
-  64  Palilula                         (UB)
+  64  Palilula — Beograd               (UB)
   65  Rakovica                         (UB)
   66  Savski venac                     (UB)
   67  Sopot                            (UB)
@@ -313,7 +313,7 @@
   92  Mali Zvornik                     (UB)
   93  Vladimirci                       (UB)
   94  Šabac                            (UB)
-  95  Gornji Milanovac                 (UNIKG)
+  95  Gornji Milanovac                 (UB)
   96  Ivanjica                         (UB)
   97  Lučani                           (UB)
   98  Čačak                            (UNIKG)
@@ -324,7 +324,7 @@
  103  Medijana                         (UNI)
  104  Merošina                         (UNI)
  105  Niška Banja                      (UNI)
- 106  Palilula                         (UNI)
+ 106  Palilula — Niš                   (UNI)
  107  Pantelej                         (UNI)
  108  Ražanj                           (UNI)
  109  Svrljig                          (UNI)
@@ -336,7 +336,7 @@
  115  Smederevska Palanka              (UB)
  116  Velika Plana                     (UB)
  117  Despotovac                       (UB)
- 118  Jagodina                         (UB)
+ 118  Jagodina                         (UNIKG)
  119  Paraćin                          (UB)
  120  Rekovac                          (UNIKG)
  121  Svilajnac                        (UB)
@@ -352,8 +352,8 @@
  131  Brus                             (UB)
  132  Kruševac                         (UNIKG)
  133  Trstenik                         (UNIKG)
- 134  Varvarin                         (UB)
- 135  Ćićevac                          (UB)
+ 134  Varvarin                         (UNIKG)
+ 135  Ćićevac                          (UNIKG)
  136  Kraljevo                         (UNIKG)
  137  Novi Pazar                       (DUNP)
  138  Raška                            (UB)

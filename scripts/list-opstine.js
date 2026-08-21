@@ -3,7 +3,7 @@
  * municipalities from the configured source JSON, with their muniId and
  * the control region (university) acronym in parentheses.
  *
- * Source defaults to `data/ps_regions_2.json` (current canonical mapping).
+ * Source defaults to `data/ps_regions_3.json` (current canonical mapping).
  * Override with `--src=<filename>` if needed (e.g. for diffing versions).
  *
  * Run:
@@ -16,7 +16,7 @@ const path = require('node:path');
 
 const args = process.argv.slice(2);
 const srcArg = args.find((a) => a.startsWith('--src='));
-const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_2.json';
+const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_3.json';
 
 const SRC = path.join(__dirname, '..', 'data', srcName);
 const DST = path.join(__dirname, '..', 'data', 'opstine-list.txt');

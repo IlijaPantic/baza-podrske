@@ -83,6 +83,7 @@ async function main() {
       psId: true,
       controlRegionId: true,
       opstinaSlug: true,
+      opstinaLat: true,
     },
   });
   console.log(
@@ -111,18 +112,44 @@ async function main() {
 
   // ---------- Plan changes ----------------------------------------
   type Diff = { psId: string; from: number; to: number };
+  /**
+   * An opština whose slug or display name changed without changing control
+   * region — e.g. "Palilula" split into "Palilula — Beograd" / "Palilula — Niš"
+   * to break a slug collision. These need the same UPDATE as a CR move,
+   * otherwise the DB keeps serving the old slug and the app's opština cache
+   * stays merged.
+   */
+  type Rename = {
+    psId: string;
+    fromSlug: string;
+    toSlug: string;
+    fromLat: string;
+    toLat: string;
+  };
   const updates: Diff[] = [];
+  const renames: Rename[] = [];
   const inserts: PollingStationSeed[] = [];
 
   for (const ps of polling) {
     const cur = byPsId.get(ps.ps_id);
     if (!cur) {
       inserts.push(ps);
-    } else if (cur.controlRegionId !== ps.control_region_id) {
+      continue;
+    }
+    if (cur.controlRegionId !== ps.control_region_id) {
       updates.push({
         psId: ps.ps_id,
         from: cur.controlRegionId,
         to: ps.control_region_id,
+      });
+    }
+    if (cur.opstinaSlug !== ps.opstina_slug || cur.opstinaLat !== ps.opstina_lat) {
+      renames.push({
+        psId: ps.ps_id,
+        fromSlug: cur.opstinaSlug,
+        toSlug: ps.opstina_slug,
+        fromLat: cur.opstinaLat,
+        toLat: ps.opstina_lat,
       });
     }
   }
@@ -133,6 +160,7 @@ async function main() {
 
   console.log('\n--- Plan ---');
   console.log(`  UPDATE control_region_id : ${updates.length}`);
+  console.log(`  RENAME opstina slug/naziv: ${renames.length}`);
   console.log(`  INSERT new polling stations: ${inserts.length}`);
   console.log(`  ORPHANED in DB (left untouched): ${orphaned.length}`);
 
@@ -145,6 +173,18 @@ async function main() {
     console.log('\n  Update breakdown:');
     for (const [k, n] of [...byMove.entries()].sort()) {
       console.log(`    ${padR(k, 14)} : ${padL(n, 5)} polling stations`);
+    }
+  }
+
+  if (renames.length > 0) {
+    const byRename = new Map<string, number>();
+    for (const r of renames) {
+      const k = `${r.fromLat} [${r.fromSlug}] → ${r.toLat} [${r.toSlug}]`;
+      byRename.set(k, (byRename.get(k) ?? 0) + 1);
+    }
+    console.log('\n  Rename breakdown:');
+    for (const [k, n] of [...byRename.entries()].sort()) {
+      console.log(`    ${padL(n, 5)} polling stations : ${k}`);
     }
   }
 
@@ -167,24 +207,33 @@ async function main() {
 
   const result = await prisma.$transaction(
     async (tx) => {
-      // 1. Update polling stations whose CR changed
+      // 1. Update polling stations whose CR and/or opština slug/naziv changed.
+      //    Both cases write the same four columns, so one pass handles them;
+      //    a rename-only row (CR unchanged) must not be skipped or the DB
+      //    keeps the stale slug.
       let updated = 0;
+      let renamed = 0;
       for (const ps of polling) {
         const cur = byPsId.get(ps.ps_id);
-        if (cur && cur.controlRegionId !== ps.control_region_id) {
-          await tx.pollingStation.update({
-            where: { id: cur.id },
-            data: {
-              controlRegionId: ps.control_region_id,
-              opstinaSlug: ps.opstina_slug,
-              opstinaLat: ps.opstina_lat,
-              opstinaCir: ps.opstina_cir,
-            },
-          });
-          updated++;
-        }
+        if (!cur) continue;
+        const crChanged = cur.controlRegionId !== ps.control_region_id;
+        const nameChanged =
+          cur.opstinaSlug !== ps.opstina_slug || cur.opstinaLat !== ps.opstina_lat;
+        if (!crChanged && !nameChanged) continue;
+        await tx.pollingStation.update({
+          where: { id: cur.id },
+          data: {
+            controlRegionId: ps.control_region_id,
+            opstinaSlug: ps.opstina_slug,
+            opstinaLat: ps.opstina_lat,
+            opstinaCir: ps.opstina_cir,
+          },
+        });
+        if (crChanged) updated++;
+        if (nameChanged) renamed++;
       }
       console.log(`  Updated ${updated} polling stations (CR change)`);
+      console.log(`  Updated ${renamed} polling stations (opstina rename)`);
 
       // 2. Insert new polling stations
       let insertedCount = 0;
@@ -236,10 +285,36 @@ async function main() {
       `;
       console.log(`  Updated ${regB} registrations (by opstina_slug)`);
 
-      return { updated, insertedCount, regA, regB };
+      return { updated, renamed, insertedCount, regA, regB };
     },
     { timeout: 120_000 }, // 2 min — large jurisdictions may take a while
   );
+
+  // ---------- Orphaned registration slugs -------------------------
+  // A registration keeps `opstina_slug` as a snapshot. If an opština was
+  // renamed, older rows can point at a slug no polling station carries any
+  // more — a municipality_admin scoped to the new slug would not see them.
+  // Report only; fixing requires a deliberate decision per case.
+  const orphanSlugs = await prisma.$queryRaw<
+    { opstina_slug: string; n: bigint }[]
+  >`
+    SELECT r.opstina_slug, count(*) AS n
+    FROM registrations r
+    WHERE NOT EXISTS (
+      SELECT 1 FROM polling_stations ps WHERE ps.opstina_slug = r.opstina_slug
+    )
+    GROUP BY r.opstina_slug
+    ORDER BY 1
+  `;
+  if (orphanSlugs.length > 0) {
+    console.log('\n--- WARNING: registrations with an unknown opstina_slug ---');
+    for (const o of orphanSlugs) {
+      console.log(`  ${padR(o.opstina_slug, 32)} : ${padL(Number(o.n), 6)} registrations`);
+    }
+    console.log(
+      '  These no longer match any polling station. Check whether an opština rename left them behind.',
+    );
+  }
 
   // ---------- Final state -----------------------------------------
   console.log('\n--- Final state per control region ---');
@@ -263,7 +338,8 @@ async function main() {
 
   console.log('\n==============================================');
   console.log(' Migration completed successfully.');
-  console.log(`   Updated: ${result.updated} polling stations`);
+  console.log(`   Updated: ${result.updated} polling stations (CR change)`);
+  console.log(`   Renamed: ${result.renamed} polling stations (opstina slug/naziv)`);
   console.log(`   Inserted: ${result.insertedCount} polling stations`);
   console.log(
     `   Registrations migrated: ${result.regA + result.regB} (${result.regA} by PS, ${result.regB} by opština)`,

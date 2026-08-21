@@ -46,3 +46,4 @@ prisma/migrations/*/migration.sql.bak
 !DEPLOY.md
 !README.md
 !MIGRATION.md
+!MIGRATION-3.md

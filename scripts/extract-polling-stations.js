@@ -2,7 +2,7 @@
  * Extract polling stations from the canonical regions JSON into the seed
  * format used by prisma/seed.ts.
  *
- * Source defaults to `data/ps_regions_2.json` (current canonical mapping).
+ * Source defaults to `data/ps_regions_3.json` (current canonical mapping).
  * Override with `--src=<filename>` if needed.
  *
  * Filters by --cr=ID,ID,... (comma-separated control region IDs).
@@ -30,7 +30,7 @@ const path = require('node:path');
 
 const cliArgs = process.argv.slice(2);
 const srcArg = cliArgs.find((a) => a.startsWith('--src='));
-const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_2.json';
+const srcName = srcArg ? srcArg.split('=')[1] : 'ps_regions_3.json';
 
 const REGIONS = path.join(__dirname, '..', 'data', srcName);
 const OUTDIR = path.join(__dirname, '..', 'data');
@@ -102,6 +102,32 @@ function slug(s) {
 }
 
 // ---------------------------------------------------------------------------
+// Slug overrides
+// ---------------------------------------------------------------------------
+/**
+ * Pin an opština's slug to a value that differs from slug(name).
+ *
+ * Two municipalities are named "Palilula" — Beograd (muni 64, UB) and Niš
+ * (muni 106, UNI). Their names now carry the city ("Palilula — Beograd",
+ * "Palilula — Niš") so voters can tell them apart in the dropdown, and so the
+ * derived slugs no longer collide. Without that, PollingStationsService groups
+ * its cache by opstinaSlug and silently merged both opštine into a single
+ * entry: 152 BM of two cities in one list, under whichever control region the
+ * database happened to return first.
+ *
+ * Niš keeps the historical `palilula` slug on purpose. It is the only one of
+ * the two with live data (UB was closed while UNI collected prijave), and
+ * `registrations.opstina_slug` / `users.assigned_opstina_slug` reference it.
+ * Renaming it would orphan those rows. Beograd is new to the public form, so
+ * it takes the derived `palilula-beograd` with nothing to migrate.
+ *
+ * Keyed by muni id.
+ */
+const SLUG_OVERRIDES = {
+  106: 'palilula', // Palilula — Niš: keep pre-existing slug (live registrations)
+};
+
+// ---------------------------------------------------------------------------
 // Load source
 // ---------------------------------------------------------------------------
 console.log('Reading', REGIONS);
@@ -134,7 +160,7 @@ for (const ps of src.polling_stations) {
 
   const opstinaLat = muni.name;
   const opstinaCir = latToCir(opstinaLat);
-  const opstinaSlug = slug(opstinaLat);
+  const opstinaSlug = SLUG_OVERRIDES[muni.id] ?? slug(opstinaLat);
 
   const bmBroj = String(ps.station_number);
   const bmNazivLat = String(ps.name || '').trim();
@@ -183,6 +209,28 @@ for (const r of records) {
 }
 if (duplicates.length > 0) {
   console.warn(`WARNING: ${duplicates.length} duplicate (opstina_slug, bm_broj) pairs`);
+}
+
+// FATAL: two municipalities must never share a slug. PollingStationsService
+// groups its in-memory cache by opstina_slug, so a collision silently merges
+// two opštine — their BMs land in one dropdown entry and every prijava is
+// filed under whichever control region won the race. Fix by disambiguating the
+// name in the source JSON (and, if the existing slug carries live data, by
+// pinning it in SLUG_OVERRIDES above).
+const slugOwner = new Map(); // slug -> muni_id
+const slugCollisions = [];
+for (const r of records) {
+  const owner = slugOwner.get(r.opstina_slug);
+  if (owner === undefined) {
+    slugOwner.set(r.opstina_slug, r.muni_id);
+  } else if (owner !== r.muni_id) {
+    slugCollisions.push(`${r.opstina_slug} (muni ${owner} vs ${r.muni_id})`);
+  }
+}
+if (slugCollisions.length > 0) {
+  console.error('FATAL: opstina_slug collision between different municipalities:');
+  for (const c of [...new Set(slugCollisions)]) console.error(`  ${c}`);
+  process.exit(1);
 }
 
 const seenPsIds = new Set();
