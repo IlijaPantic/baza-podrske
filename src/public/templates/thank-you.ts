@@ -8,9 +8,7 @@ export function thankYouPage(shortId?: string): string {
   const bodyHtml = `
     <div class="card status-card">
       <div class="status-icon" aria-hidden="true">✓</div>
-      <h2>Hvala vam!</h2>
-      <p>Vaša prijava je uspešna. Kontaktiraćemo vas telefonom ili emailom oko dogovora za obuku.</p>
-      ${shortId ? `<div class="short-id">Vaš broj prijave: ${escapeHtml(shortId)}</div>` : ''}
+      <h2>Hvala vam što podržavate izbornu listu "Studentska lista - Studenti pobeđuju" pod rednim brojem 3!</h2>
     </div>
   `;
   return layout({ title: 'Hvala — prijava primljena', bodyHtml });

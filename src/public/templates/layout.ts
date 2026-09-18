@@ -55,7 +55,6 @@ export function layout({ title, bodyHtml, inlineScript }: LayoutOpts): string {
 <body>
   <main class="page">
     ${bodyHtml}
-    <p class="footer">Kontrola · ${new Date().getFullYear()}</p>
   </main>
   ${inlineScript ? `<script>${inlineScript}</script>` : ''}
 </body>

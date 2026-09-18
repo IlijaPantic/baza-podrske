@@ -17,7 +17,7 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
     <header class="header">
       <span class="kicker">Studenti pobeđuju!</span>
       <h1>Baza podrške</h1>
-      <p>Evidencija građana koji su izrazili spremnost da podrže studentsku listu.</p>
+      <p>Evidencija građana koji su izrazili spremnost da podrže studentsku listu "Studentska lista - Studenti pobeđuju" pod rednim brojem 3!</p>
       <p class="note">
         <strong>Napomena:</strong> Prikupljeni podaci koriste se isključivo
         u svrhu evidencije podrške i komunikacije u vezi sa aktivnostima
@@ -108,7 +108,8 @@ export function formPage({ opstine, bmByOpstina, prefilledOpstina }: FormPageOpt
           <input id="consent" type="checkbox" required />
           <span>
             Dajem svoj pristanak u skladu sa Zakonom o zaštiti podataka o ličnosti
-            da studenti u blokadi kao rukovaoci obrađuju podatke o ličnosti u svrhu
+            da Grupa građana "Studentksa lista - Studenti pobeđuju" kao rukovodilac 
+            obrađuje podatke o ličnosti u svrhu
             preduzimanja opisanih radnji od strane rukovaoca lica čiji se podaci
             o ličnosti obrađuju i da podaci o ličnosti mogu biti prosleđivani
             drugom rukovaocu, obrađivaču i trećim licima.
